@@ -19,6 +19,74 @@
         { x: WORLD_WIDTH - 88, y: 88 },
         { x: WORLD_WIDTH * 0.56, y: WORLD_HEIGHT - 92 }
     ];
+    var BAD_PERSON_SPRITES = {
+        front: [
+            "................",
+            ".....kkkkkk.....",
+            "....kkkkkkkk....",
+            ".....ssssss.....",
+            "....smmmmms.....",
+            "....ssssssss....",
+            "......rrrr......",
+            "...rrrrrrrrrr...",
+            "..rrr.rrrr.rrr..",
+            ".rr...rrrr...rr.",
+            ".bb...rrrr......",
+            ".bbb..rrrr......",
+            ".bbb..pppp......",
+            ".....pp..pp.....",
+            ".....pp..pp.....",
+            ".....pp..pp.....",
+            "....kkk..kkk....",
+            "...kkkk..kkkk...",
+            "................",
+            "................"
+        ],
+        back: [
+            "................",
+            ".....kkkkkk.....",
+            "....kkkkkkkk....",
+            "....kkkkkkkk....",
+            ".....kkkkkk.....",
+            "....rrrrrrrr....",
+            "...rrrrrrrrrr...",
+            "..rrr.rrrr.rrr..",
+            ".rr...rrrr...rr.",
+            "......rrrr...bb.",
+            "......rrrr..bbb.",
+            "......rrrr..bbb.",
+            "......pppp......",
+            ".....pp..pp.....",
+            ".....pp..pp.....",
+            ".....pp..pp.....",
+            "....kkk..kkk....",
+            "...kkkk..kkkk...",
+            "................",
+            "................"
+        ],
+        side: [
+            "................",
+            "......kkkk......",
+            ".....kkkkkk.....",
+            "......ssss......",
+            ".....smmm.......",
+            "......sssss.....",
+            "......rrrr......",
+            ".....rrrrrrr....",
+            "....rr.rrrrr....",
+            "...rr..rrrrr....",
+            "..bb...rrrr.....",
+            ".bbb...rrrr.....",
+            ".bbb...pppp.....",
+            "......pp.pp.....",
+            "......pp.pp.....",
+            ".....pp..pp.....",
+            "....kk...kk.....",
+            "...kkk...kkk....",
+            "................",
+            "................"
+        ]
+    };
     var ANIMAL_SPRITE_PATHS = {
         zebra: "./images/zebra.png",
         turtle: "./images/turtle.png",
@@ -29,13 +97,13 @@
         cow: "./images/cow.png"
     };
     var ANIMAL_SPECS = [
-        { name: "Zebra", kind: "zebra", x: 720, y: 130, radius: 17, speed: 116 },
-        { name: "Turtle", kind: "turtle", x: 815, y: 500, radius: 16, speed: 54 },
-        { name: "Squirrel", kind: "squirrel", x: 360, y: 480, radius: 14, speed: 150 },
-        { name: "Hippo", kind: "hippo", x: 570, y: 430, radius: 21, speed: 72 },
-        { name: "Giraffe", kind: "giraffe", x: 705, y: 330, radius: 19, speed: 98 },
-        { name: "Butterfly", kind: "butterfly", x: 450, y: 130, radius: 13, speed: 138 },
-        { name: "Cow", kind: "cow", x: 280, y: 300, radius: 17, speed: 92 }
+        { kind: "zebra", x: 720, y: 130, radius: 17, speed: 116 },
+        { kind: "turtle", x: 815, y: 500, radius: 16, speed: 54 },
+        { kind: "squirrel", x: 360, y: 480, radius: 14, speed: 150 },
+        { kind: "hippo", x: 570, y: 430, radius: 21, speed: 72 },
+        { kind: "giraffe", x: 705, y: 330, radius: 19, speed: 98 },
+        { kind: "butterfly", x: 450, y: 130, radius: 13, speed: 138 },
+        { kind: "cow", x: 280, y: 300, radius: 17, speed: 92 }
     ];
     var defaultSettings = {
         highContrast: false,
@@ -340,6 +408,7 @@
             animal.angle = Math.random() * Math.PI * 2;
             animal.wanderTime = 0.6 + Math.random();
             game.rescued = Math.max(0, game.rescued - 1);
+            layoutRescuedAnimals();
             sendBadPersonAway(BAD_PERSON_STEAL_DELAY);
         }
 
@@ -443,9 +512,8 @@
                 player.carrying.carried = false;
                 game.rescueSequence += 1;
                 player.carrying.rescueOrder = game.rescueSequence;
-                player.carrying.x = game.zoo.x + game.zoo.w - 26;
-                player.carrying.y = game.zoo.y + 24 + game.rescued * 14;
                 game.rescued += 1;
+                layoutRescuedAnimals();
                 player.carrying = null;
             }
 
@@ -480,6 +548,34 @@
             if (obstacle) {
                 game.obstacles.push(obstacle);
             }
+        }
+
+        function layoutRescuedAnimals() {
+            var rescuedAnimals = game.animals.filter(function (animal) {
+                return animal.rescued && !animal.carried;
+            }).sort(function (a, b) {
+                return a.rescueOrder - b.rescueOrder;
+            });
+            var count = rescuedAnimals.length;
+            if (!count) {
+                return;
+            }
+
+            var zoo = game.zoo;
+            var columns = Math.ceil(Math.sqrt(count * (zoo.w / zoo.h)));
+            var rows = Math.ceil(count / columns);
+            var paddingX = 24;
+            var paddingY = 24;
+            var usableW = Math.max(1, zoo.w - paddingX * 2);
+            var usableH = Math.max(1, zoo.h - paddingY * 2);
+
+            rescuedAnimals.forEach(function (animal, index) {
+                var column = index % columns;
+                var row = Math.floor(index / columns);
+                animal.x = zoo.x + paddingX + (columns === 1 ? usableW / 2 : (column / (columns - 1)) * usableW);
+                animal.y = zoo.y + paddingY + (rows === 1 ? usableH / 2 : (row / (rows - 1)) * usableH);
+                animal.angle = Math.PI / 2;
+            });
         }
 
         function draw() {
@@ -762,37 +858,45 @@
             }
 
             context.save();
-            context.translate(badPerson.x, badPerson.y);
-            context.rotate(badPerson.angle);
-            context.fillStyle = settings.highContrast ? "#ff5fb7" : "#6f1d2d";
-            context.beginPath();
-            context.arc(0, -8, 11, 0, Math.PI * 2);
-            context.fill();
-            context.fillStyle = settings.highContrast ? "#ffffff" : "#242424";
-            context.fillRect(-13, -24, 26, 7);
-            context.fillRect(-8, -33, 16, 11);
-            context.fillStyle = settings.highContrast ? "#ffe600" : "#f5d2a4";
-            context.beginPath();
-            context.arc(0, -20, 8, 0, Math.PI * 2);
-            context.fill();
-            context.fillStyle = settings.highContrast ? "#000000" : "#1f1f1f";
-            context.fillRect(-8, -22, 16, 4);
-            context.fillStyle = settings.highContrast ? "#00e5ff" : "#3b3b42";
-            context.fillRect(-8, 2, 6, 18);
-            context.fillRect(2, 2, 6, 18);
-            context.strokeStyle = settings.highContrast ? "#ffffff" : "#451421";
-            context.lineWidth = 4;
-            context.beginPath();
-            context.moveTo(-12, -5);
-            context.lineTo(-23, 3);
-            context.moveTo(12, -5);
-            context.lineTo(23, 3);
-            context.stroke();
-            context.fillStyle = settings.highContrast ? "#ffe600" : "#8b6f42";
-            context.beginPath();
-            context.ellipse(-26, 6, 8, 13, -0.5, 0, Math.PI * 2);
-            context.fill();
+            context.translate(Math.round(badPerson.x), Math.round(badPerson.y));
+            drawBadPersonPixelSprite(badPerson);
             context.restore();
+        }
+
+        function drawBadPersonPixelSprite(badPerson) {
+            var scale = 3;
+            var direction = getBadPersonSpriteDirection(badPerson);
+            var rows = BAD_PERSON_SPRITES[direction];
+            var colors = {
+                k: settings.highContrast ? "#ffffff" : "#151518",
+                s: settings.highContrast ? "#ffe600" : "#f5c18c",
+                m: settings.highContrast ? "#000000" : "#1f1f1f",
+                r: settings.highContrast ? "#ff5fb7" : "#6f1d2d",
+                p: settings.highContrast ? "#00e5ff" : "#3b3b42",
+                b: settings.highContrast ? "#ffe600" : "#8b6f42"
+            };
+
+            if (direction === "side" && Math.cos(badPerson.angle) < 0) {
+                context.scale(-1, 1);
+            }
+
+            context.translate(-(rows[0].length * scale) / 2, -12 * scale);
+            rows.forEach(function (row, y) {
+                for (var x = 0; x < row.length; x += 1) {
+                    var color = colors[row.charAt(x)];
+                    if (color) {
+                        context.fillStyle = color;
+                        context.fillRect(x * scale, y * scale, scale, scale);
+                    }
+                }
+            });
+        }
+
+        function getBadPersonSpriteDirection(badPerson) {
+            if (Math.abs(Math.sin(badPerson.angle)) > 0.68) {
+                return Math.sin(badPerson.angle) > 0 ? "front" : "back";
+            }
+            return "side";
         }
 
         function drawTarget() {
@@ -832,17 +936,21 @@
     }
 
     function createInitialGame(settings) {
+        var zoo = { x: 38, y: 38, w: 148, h: 106 };
+        var player = createPlayer(zoo);
         var game = {
-            zoo: { x: 38, y: 38, w: 148, h: 106 },
-            player: { x: 125, y: 205, targetX: 125, targetY: 205, r: 17, speed: 220, carrying: null },
+            zoo: zoo,
+            player: player,
             badPerson: createBadPerson(),
-            animals: createAnimals(),
+            animals: [],
             obstacles: [],
             rescued: 0,
             rescueSequence: 0,
             score: 0,
             ended: false
         };
+
+        game.animals = createAnimals(game);
 
         var count = settings.reducedMotion ? 12 : 16;
         for (var i = 0; i < count; i += 1) {
@@ -853,6 +961,12 @@
         }
 
         return game;
+    }
+
+    function createPlayer(zoo) {
+        var startX = zoo.x + zoo.w / 2;
+        var startY = zoo.y + zoo.h / 2;
+        return { x: startX, y: startY, targetX: startX, targetY: startY, r: 17, speed: 220, carrying: null };
     }
 
     function createBadPerson() {
@@ -882,15 +996,58 @@
         return sprites;
     }
 
-    function createAnimals() {
-        return ANIMAL_SPECS.map(function (spec) {
-            return createAnimal(spec.name, spec.kind, spec.x, spec.y, spec.radius, spec.speed);
+    function createAnimals(game) {
+        var animals = [];
+        ANIMAL_SPECS.forEach(function (spec) {
+            var spot = findAnimalStartSpot(spec, animals, game);
+            animals.push(createAnimal(spec.kind, spot.x, spot.y, spec.radius, spec.speed));
         });
+        return animals;
     }
 
-    function createAnimal(name, kind, x, y, radius, speed) {
+    function findAnimalStartSpot(spec, animals, game) {
+        for (var attempt = 0; attempt < 120; attempt += 1) {
+            var spot = {
+                x: spec.radius + 48 + Math.random() * (WORLD_WIDTH - spec.radius * 2 - 96),
+                y: spec.radius + 48 + Math.random() * (WORLD_HEIGHT - spec.radius * 2 - 96),
+                r: spec.radius
+            };
+
+            if (isSafeAnimalStartSpot(spot, animals, game)) {
+                return spot;
+            }
+        }
+
+        return { x: spec.x, y: spec.y, r: spec.radius };
+    }
+
+    function isSafeAnimalStartSpot(spot, animals, game) {
+        var zooBuffer = {
+            x: game.zoo.x - 76,
+            y: game.zoo.y - 76,
+            w: game.zoo.w + 152,
+            h: game.zoo.h + 152
+        };
+
+        if (pointInRect(spot.x, spot.y, zooBuffer)) {
+            return false;
+        }
+
+        if (distance(spot, game.player) < spot.r + game.player.r + 120) {
+            return false;
+        }
+
+        for (var i = 0; i < animals.length; i += 1) {
+            if (distance(spot, animals[i]) < spot.r + animals[i].r + 56) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    function createAnimal(kind, x, y, radius, speed) {
         return {
-            name: name,
             kind: kind,
             x: x,
             y: y,
