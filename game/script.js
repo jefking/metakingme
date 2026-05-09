@@ -6,6 +6,7 @@
     var WORLD_HEIGHT = 620;
     var MAX_OBSTACLES = 28;
     var SPRITE_SIZE = 32;
+    var GRASS_TILE_SIZE = 32;
     var BAD_PERSON_SPEED = 320;
     var BAD_PERSON_PLAYER_DELAY = 5;
     var BAD_PERSON_STEAL_DELAY = 7;
@@ -104,6 +105,148 @@
         { kind: "giraffe", x: 705, y: 330, radius: 19, speed: 98 },
         { kind: "butterfly", x: 450, y: 130, radius: 13, speed: 138 },
         { kind: "cow", x: 280, y: 300, radius: 17, speed: 92 }
+    ];
+    var WORKER_SPRITE = {
+        width: 16,
+        height: 16,
+        rects: [
+            ["workerHatLight", 5, 0, 6, 1],
+            ["workerHat", 4, 1, 8, 1],
+            ["workerSkin", 6, 2, 4, 3],
+            ["workerSkinShade", 9, 3, 1, 2],
+            ["workerInk", 6, 4, 1, 1],
+            ["workerInk", 9, 4, 1, 1],
+            ["workerShirt", 3, 6, 3, 3],
+            ["workerShirt", 10, 6, 3, 3],
+            ["workerShirt", 5, 6, 6, 4],
+            ["workerShirtLight", 7, 6, 2, 4],
+            ["workerSkin", 2, 8, 2, 2],
+            ["workerSkin", 12, 8, 2, 2],
+            ["workerPants", 5, 10, 3, 4],
+            ["workerPants", 9, 10, 3, 4],
+            ["workerBoot", 4, 14, 4, 1],
+            ["workerBoot", 9, 14, 4, 1],
+            ["workerBoot", 5, 15, 2, 1],
+            ["workerBoot", 10, 15, 2, 1]
+        ]
+    };
+    var ZOO_SIGN_SPRITE = {
+        width: 17,
+        height: 5,
+        rects: [
+            ["zooInk", 0, 0, 5, 1],
+            ["zooInk", 3, 1, 1, 1],
+            ["zooInk", 2, 2, 1, 1],
+            ["zooInk", 1, 3, 1, 1],
+            ["zooInk", 0, 4, 5, 1],
+            ["zooInk", 6, 0, 4, 1],
+            ["zooInk", 6, 1, 1, 3],
+            ["zooInk", 9, 1, 1, 3],
+            ["zooInk", 6, 4, 4, 1],
+            ["zooInk", 11, 0, 4, 1],
+            ["zooInk", 11, 1, 1, 3],
+            ["zooInk", 14, 1, 1, 3],
+            ["zooInk", 11, 4, 4, 1]
+        ]
+    };
+    var TREE_SPRITES = [
+        {
+            width: 16,
+            height: 18,
+            rects: [
+                ["spriteShadow", 4, 17, 9, 1],
+                ["treeTrunk", 7, 10, 3, 7],
+                ["treeTrunkLight", 8, 10, 1, 6],
+                ["treeLeafDark", 6, 1, 4, 2],
+                ["treeLeaf", 5, 2, 6, 3],
+                ["treeLeafLight", 7, 2, 3, 1],
+                ["treeLeafDark", 3, 4, 10, 2],
+                ["treeLeaf", 2, 6, 12, 4],
+                ["treeLeafLight", 4, 6, 4, 2],
+                ["treeLeafDark", 10, 6, 3, 3],
+                ["treeLeaf", 4, 9, 8, 3],
+                ["treeLeafLight", 6, 9, 3, 1]
+            ]
+        },
+        {
+            width: 16,
+            height: 18,
+            rects: [
+                ["spriteShadow", 3, 17, 10, 1],
+                ["treeTrunk", 7, 12, 2, 5],
+                ["treeTrunkLight", 8, 12, 1, 4],
+                ["treeLeafDark", 7, 0, 2, 2],
+                ["treeLeaf", 6, 2, 4, 2],
+                ["treeLeafLight", 7, 2, 1, 1],
+                ["treeLeafDark", 5, 4, 6, 2],
+                ["treeLeaf", 4, 6, 8, 2],
+                ["treeLeafLight", 6, 6, 3, 1],
+                ["treeLeafDark", 3, 8, 10, 2],
+                ["treeLeaf", 2, 10, 12, 3],
+                ["treeLeafLight", 5, 10, 4, 1]
+            ]
+        },
+        {
+            width: 16,
+            height: 18,
+            rects: [
+                ["spriteShadow", 4, 17, 9, 1],
+                ["treeTrunk", 6, 11, 4, 6],
+                ["treeTrunkLight", 8, 11, 1, 5],
+                ["treeLeafDark", 3, 3, 5, 5],
+                ["treeLeaf", 2, 5, 6, 5],
+                ["treeLeafLight", 4, 5, 2, 2],
+                ["treeLeafDark", 8, 2, 5, 5],
+                ["treeLeaf", 8, 4, 6, 5],
+                ["treeLeafLight", 9, 4, 3, 2],
+                ["treeLeafDark", 5, 7, 7, 4],
+                ["treeLeaf", 4, 9, 8, 3]
+            ]
+        }
+    ];
+    var BRUSH_SPRITES = [
+        {
+            width: 16,
+            height: 14,
+            rects: [
+                ["spriteShadow", 3, 13, 10, 1],
+                ["brushDark", 3, 7, 10, 4],
+                ["brushLeaf", 2, 5, 5, 5],
+                ["brushLeaf", 7, 4, 6, 6],
+                ["brushLight", 4, 5, 3, 2],
+                ["brushLight", 9, 5, 3, 2],
+                ["brushDark", 5, 9, 8, 3]
+            ]
+        },
+        {
+            width: 16,
+            height: 14,
+            rects: [
+                ["spriteShadow", 2, 13, 12, 1],
+                ["brushDark", 2, 8, 12, 3],
+                ["brushLeaf", 3, 5, 4, 5],
+                ["brushLeaf", 8, 4, 5, 6],
+                ["brushLeaf", 5, 7, 7, 4],
+                ["brushLight", 4, 5, 2, 2],
+                ["brushLight", 10, 5, 2, 2],
+                ["brushFlower", 7, 4, 1, 1],
+                ["brushFlower", 12, 7, 1, 1]
+            ]
+        },
+        {
+            width: 16,
+            height: 14,
+            rects: [
+                ["spriteShadow", 4, 13, 9, 1],
+                ["brushDark", 4, 8, 9, 3],
+                ["brushLeaf", 5, 4, 5, 6],
+                ["brushLeaf", 2, 7, 4, 4],
+                ["brushLeaf", 10, 6, 4, 5],
+                ["brushLight", 6, 4, 2, 2],
+                ["brushLight", 11, 7, 2, 2],
+                ["brushFlower", 4, 7, 1, 1]
+            ]
+        }
     ];
     var defaultSettings = {
         highContrast: false,
@@ -579,9 +722,13 @@
         }
 
         function draw() {
-            drawField();
-            drawZoo();
-            game.obstacles.forEach(drawObstacle);
+            var palette = pixelPalette();
+
+            drawField(palette);
+            drawZoo(palette);
+            game.obstacles.forEach(function (obstacle) {
+                drawObstacle(obstacle, palette);
+            });
             game.animals.forEach(function (animal) {
                 if (!animal.rescued || animal.carried) {
                     drawAnimal(animal);
@@ -593,7 +740,7 @@
                 }
             });
             drawBadPerson();
-            drawPlayer();
+            drawPlayer(palette);
             if (!game.ended) {
                 drawTarget();
             } else {
@@ -601,59 +748,48 @@
             }
         }
 
-        function drawField() {
+        function drawField(palette) {
             context.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-            context.fillStyle = settings.highContrast ? "#000000" : "#dff0c8";
+            context.fillStyle = palette.grassBase;
             context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-            context.fillStyle = settings.highContrast ? "#202020" : "#cfe4b4";
-            for (var x = 24; x < WORLD_WIDTH; x += 48) {
-                for (var y = 24; y < WORLD_HEIGHT; y += 48) {
-                    context.beginPath();
-                    context.arc(x, y, 3, 0, Math.PI * 2);
-                    context.fill();
+
+            for (var y = 0; y < WORLD_HEIGHT; y += GRASS_TILE_SIZE) {
+                for (var x = 0; x < WORLD_WIDTH; x += GRASS_TILE_SIZE) {
+                    drawGrassTile(x, y, (x / GRASS_TILE_SIZE + y / GRASS_TILE_SIZE) % 4, palette);
                 }
             }
         }
 
-        function drawZoo() {
+        function drawZoo(palette) {
             var zoo = game.zoo;
-            context.fillStyle = settings.highContrast ? "#ffffff" : "#f7e3a4";
-            context.fillRect(zoo.x, zoo.y, zoo.w, zoo.h);
-            context.strokeStyle = settings.highContrast ? "#00e5ff" : "#8b5a2b";
-            context.lineWidth = 6;
-            context.strokeRect(zoo.x, zoo.y, zoo.w, zoo.h);
-            context.fillStyle = settings.highContrast ? "#00e5ff" : "#8b5a2b";
-            for (var x = zoo.x + 12; x < zoo.x + zoo.w; x += 22) {
-                context.fillRect(x, zoo.y - 6, 6, zoo.h + 12);
+            var signW = 88;
+            var signH = 36;
+            var signX = zoo.x + zoo.w / 2 - signW / 2;
+            var signY = zoo.y + zoo.h / 2 - signH / 2;
+
+            drawPixelRect(zoo.x, zoo.y, zoo.w, zoo.h, palette.zooFloor);
+            drawPixelRect(zoo.x + 8, zoo.y + 8, zoo.w - 16, zoo.h - 16, palette.zooShade);
+
+            for (var x = zoo.x + 8; x < zoo.x + zoo.w; x += 20) {
+                drawPixelRect(x, zoo.y - 6, 8, zoo.h + 12, palette.zooWood);
+                drawPixelRect(x + 2, zoo.y - 2, 3, zoo.h + 4, palette.zooWoodLight);
             }
+
+            drawPixelRect(zoo.x - 4, zoo.y + 12, zoo.w + 8, 8, palette.zooWood);
+            drawPixelRect(zoo.x - 4, zoo.y + zoo.h - 22, zoo.w + 8, 8, palette.zooWood);
+            drawPixelRect(signX, signY, signW, signH, palette.zooWood);
+            drawPixelRect(signX + 6, signY + 6, signW - 12, signH - 12, palette.zooFloor);
+            drawPixelSprite(ZOO_SIGN_SPRITE, zoo.x + zoo.w / 2, zoo.y + zoo.h / 2, 4, palette);
         }
 
-        function drawObstacle(obstacle) {
+        function drawObstacle(obstacle, palette) {
             var radius = obstacle.currentRadius;
-            if (obstacle.type === "tree") {
-                context.fillStyle = settings.highContrast ? "#f5f5f5" : "#75431b";
-                context.fillRect(obstacle.x - 5, obstacle.y + radius * 0.15, 10, radius * 0.72);
-                context.fillStyle = settings.highContrast ? "#ffe600" : "#1f7a3a";
-                context.beginPath();
-                context.arc(obstacle.x, obstacle.y, radius, 0, Math.PI * 2);
-                context.fill();
-                context.fillStyle = settings.highContrast ? "#000000" : "#2da450";
-                context.beginPath();
-                context.arc(obstacle.x - radius * 0.35, obstacle.y + 2, radius * 0.48, 0, Math.PI * 2);
-                context.arc(obstacle.x + radius * 0.35, obstacle.y + 1, radius * 0.48, 0, Math.PI * 2);
-                context.fill();
-                return;
-            }
+            var sprites = obstacle.type === "tree" ? TREE_SPRITES : BRUSH_SPRITES;
+            var sprite = sprites[obstacle.variant % sprites.length] || sprites[0];
+            var finalScale = Math.max(2, Math.round(obstacle.radius / (obstacle.type === "tree" ? 8 : 9)));
+            var scale = Math.max(1, Math.round(finalScale * (radius / obstacle.radius)));
 
-            context.fillStyle = settings.highContrast ? "#ff5fb7" : "#4d9f45";
-            context.beginPath();
-            context.arc(obstacle.x, obstacle.y, radius, 0, Math.PI * 2);
-            context.fill();
-            context.fillStyle = settings.highContrast ? "#ffffff" : "#67bd5f";
-            context.beginPath();
-            context.arc(obstacle.x - radius * 0.25, obstacle.y - radius * 0.15, radius * 0.42, 0, Math.PI * 2);
-            context.arc(obstacle.x + radius * 0.24, obstacle.y - radius * 0.05, radius * 0.38, 0, Math.PI * 2);
-            context.fill();
+            drawPixelSprite(sprite, obstacle.x, obstacle.y, scale, palette);
         }
 
         function drawAnimal(animal) {
@@ -823,32 +959,9 @@
             context.fill();
         }
 
-        function drawPlayer() {
+        function drawPlayer(palette) {
             var player = game.player;
-            context.save();
-            context.translate(player.x, player.y);
-            context.fillStyle = settings.highContrast ? "#00e5ff" : "#204b8f";
-            context.beginPath();
-            context.arc(0, -8, 10, 0, Math.PI * 2);
-            context.fill();
-            context.fillStyle = settings.highContrast ? "#ffffff" : "#f4c68b";
-            context.beginPath();
-            context.arc(0, -18, 8, 0, Math.PI * 2);
-            context.fill();
-            context.fillStyle = settings.highContrast ? "#ffe600" : "#f2b544";
-            context.fillRect(-13, -31, 26, 6);
-            context.fillStyle = settings.highContrast ? "#00e5ff" : "#204b8f";
-            context.fillRect(-10, 2, 7, 18);
-            context.fillRect(3, 2, 7, 18);
-            context.strokeStyle = settings.highContrast ? "#ffffff" : "#17315b";
-            context.lineWidth = 4;
-            context.beginPath();
-            context.moveTo(-13, -5);
-            context.lineTo(-22, 6);
-            context.moveTo(13, -5);
-            context.lineTo(22, 6);
-            context.stroke();
-            context.restore();
+            drawPixelSprite(WORKER_SPRITE, player.x, player.y - 8, 3, palette);
         }
 
         function drawBadPerson() {
@@ -909,6 +1022,116 @@
             context.moveTo(game.player.targetX, game.player.targetY - 13);
             context.lineTo(game.player.targetX, game.player.targetY + 13);
             context.stroke();
+        }
+
+        function drawGrassTile(x, y, variant, palette) {
+            var base = variant % 2 === 0 ? palette.grassBase : palette.grassAlt;
+
+            drawPixelRect(x, y, GRASS_TILE_SIZE, GRASS_TILE_SIZE, base);
+            drawPixelRect(x + 4, y + 6, 4, 8, palette.grassMid);
+            drawPixelRect(x + 8, y + 10, 4, 4, palette.grassDark);
+            drawPixelRect(x + 20, y + 4, 8, 4, palette.grassLight);
+            drawPixelRect(x + 24, y + 8, 4, 8, palette.grassMid);
+
+            if (variant === 1 || variant === 3) {
+                drawPixelRect(x + 12, y + 22, 8, 4, palette.grassLight);
+                drawPixelRect(x + 16, y + 18, 4, 4, palette.grassDark);
+            } else {
+                drawPixelRect(x + 4, y + 24, 8, 4, palette.grassLight);
+                drawPixelRect(x + 12, y + 20, 4, 4, palette.grassMid);
+            }
+        }
+
+        function drawPixelSprite(sprite, centerX, centerY, scale, palette) {
+            var left = Math.round(centerX - sprite.width * scale / 2);
+            var top = Math.round(centerY - sprite.height * scale / 2);
+
+            sprite.rects.forEach(function (rect) {
+                drawPixelRect(
+                    left + rect[1] * scale,
+                    top + rect[2] * scale,
+                    rect[3] * scale,
+                    rect[4] * scale,
+                    palette[rect[0]]
+                );
+            });
+        }
+
+        function drawPixelRect(x, y, width, height, color) {
+            if (!color) {
+                return;
+            }
+
+            context.fillStyle = color;
+            context.fillRect(Math.round(x), Math.round(y), Math.round(width), Math.round(height));
+        }
+
+        function pixelPalette() {
+            if (settings.highContrast) {
+                return {
+                    grassBase: "#000000",
+                    grassAlt: "#101010",
+                    grassLight: "#303030",
+                    grassMid: "#202020",
+                    grassDark: "#ffffff",
+                    zooFloor: "#ffffff",
+                    zooShade: "#d8d8d8",
+                    zooWood: "#00e5ff",
+                    zooWoodLight: "#ffffff",
+                    zooInk: "#000000",
+                    spriteShadow: "#ffffff",
+                    treeLeaf: "#ffe600",
+                    treeLeafLight: "#ffffff",
+                    treeLeafDark: "#00e5ff",
+                    treeTrunk: "#f5f5f5",
+                    treeTrunkLight: "#000000",
+                    brushLeaf: "#ff5fb7",
+                    brushLight: "#ffffff",
+                    brushDark: "#ffe600",
+                    brushFlower: "#00e5ff",
+                    workerHat: "#ffe600",
+                    workerHatLight: "#ffffff",
+                    workerSkin: "#ffffff",
+                    workerSkinShade: "#d8d8d8",
+                    workerInk: "#000000",
+                    workerShirt: "#00e5ff",
+                    workerShirtLight: "#ffffff",
+                    workerPants: "#ffe600",
+                    workerBoot: "#ffffff"
+                };
+            }
+
+            return {
+                grassBase: "#dff0c8",
+                grassAlt: "#d7ecc0",
+                grassLight: "#eaf8d8",
+                grassMid: "#cfe4b4",
+                grassDark: "#a7c982",
+                zooFloor: "#f7e3a4",
+                zooShade: "#e8c875",
+                zooWood: "#8b5a2b",
+                zooWoodLight: "#b37739",
+                zooInk: "#243322",
+                spriteShadow: "rgba(31, 49, 30, 0.24)",
+                treeLeaf: "#1f7a3a",
+                treeLeafLight: "#2da450",
+                treeLeafDark: "#145b2a",
+                treeTrunk: "#75431b",
+                treeTrunkLight: "#a86730",
+                brushLeaf: "#4d9f45",
+                brushLight: "#67bd5f",
+                brushDark: "#2f7f38",
+                brushFlower: "#f0b13d",
+                workerHat: "#d9962f",
+                workerHatLight: "#f2b544",
+                workerSkin: "#f4c68b",
+                workerSkinShade: "#d89558",
+                workerInk: "#17315b",
+                workerShirt: "#204b8f",
+                workerShirtLight: "#2d65b3",
+                workerPants: "#1f365f",
+                workerBoot: "#1d1f1f"
+            };
         }
 
         function drawEndScore() {
@@ -1076,7 +1299,8 @@
                 y: 42 + Math.random() * (WORLD_HEIGHT - 84),
                 radius: radius,
                 currentRadius: growing ? 3 : radius,
-                type: isTree ? "tree" : "brush"
+                type: isTree ? "tree" : "brush",
+                variant: Math.floor(Math.random() * (isTree ? TREE_SPRITES.length : BRUSH_SPRITES.length))
             };
             if (isSafeObstacleSpot(obstacle, activeGame)) {
                 return obstacle;
