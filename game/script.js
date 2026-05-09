@@ -8,18 +8,11 @@
     var SPRITE_SIZE = 32;
     var GRASS_TILE_SIZE = 32;
     var BAD_PERSON_SPEED = 320;
-    var BAD_PERSON_PLAYER_DELAY = 5;
-    var BAD_PERSON_STEAL_DELAY = 7;
-    var BAD_SPAWN_POINTS = [
-        { x: WORLD_WIDTH - 70, y: WORLD_HEIGHT - 70 },
-        { x: WORLD_WIDTH - 70, y: 72 },
-        { x: WORLD_WIDTH * 0.58, y: WORLD_HEIGHT - 66 }
-    ];
-    var BAD_PATROL_POINTS = [
-        { x: WORLD_WIDTH - 82, y: WORLD_HEIGHT - 82 },
-        { x: WORLD_WIDTH - 88, y: 88 },
-        { x: WORLD_WIDTH * 0.56, y: WORLD_HEIGHT - 92 }
-    ];
+    var BAD_PERSON_HIDE_MIN = 4;
+    var BAD_PERSON_HIDE_MAX = 12;
+    var BAD_PERSON_EDGE_OFFSET = 64;
+    var BAD_PERSON_SAFE_DISTANCE = 220;
+    var BAD_PERSON_ZOO_DISTANCE = 190;
     var BAD_PERSON_SPRITES = {
         front: [
             "................",
@@ -400,6 +393,7 @@
             moveAnimals(delta * speedFactor);
             moveBadPerson(delta, settings.reducedMotion ? 0.7 : 1);
             updateCarriedAnimal();
+            updateReleasedAnimal();
             checkCatchAndDrop();
             if (game.ended) {
                 return;
@@ -465,94 +459,166 @@
                 return;
             }
 
-            var target = getBadPersonTarget();
-            var dx = target.x - badPerson.x;
-            var dy = target.y - badPerson.y;
-            var targetDistance = Math.hypot(dx, dy);
-            if (targetDistance > 1) {
-                var step = Math.min(targetDistance, badPerson.speed * speedFactor * delta);
-                badPerson.angle = Math.atan2(dy, dx);
-                moveEntity(badPerson, (dx / targetDistance) * step, (dy / targetDistance) * step);
+            if (badPerson.mode === "patrol" && game.rescued > 0) {
+                planBadPersonReleaseRun();
             }
 
+            if (!badPerson.route.length || badPerson.routeIndex >= badPerson.route.length) {
+                planBadPersonExitRoute();
+            }
+
+            var target = badPerson.route[badPerson.routeIndex];
+            moveBadPersonToward(target, delta * speedFactor);
+
             if (distance(badPerson, game.player) < badPerson.r + game.player.r + 4) {
-                sendBadPersonAway(BAD_PERSON_PLAYER_DELAY);
+                recoverReleasedAnimal();
+                sendBadPersonAway();
                 return;
             }
 
-            if (game.rescued > 0 && pointInRect(badPerson.x, badPerson.y, game.zoo)) {
-                stealRescuedAnimal();
+            if (distance(badPerson, target) <= (target.radius || 18)) {
+                advanceBadPersonRoute(target);
             }
         }
 
-        function getBadPersonTarget() {
+        function moveBadPersonToward(target, delta) {
             var badPerson = game.badPerson;
-            if (game.rescued > 0) {
-                return {
-                    x: game.zoo.x + game.zoo.w / 2,
-                    y: game.zoo.y + game.zoo.h / 2
-                };
+            var dx = target.x - badPerson.x;
+            var dy = target.y - badPerson.y;
+            var targetDistance = Math.hypot(dx, dy);
+            if (targetDistance <= 1) {
+                return;
             }
 
-            if (distance(badPerson, { x: badPerson.patrolX, y: badPerson.patrolY }) < 22) {
-                chooseBadPatrolTarget();
-            }
-
-            return { x: badPerson.patrolX, y: badPerson.patrolY };
-        }
-
-        function chooseBadPatrolTarget() {
-            var badPerson = game.badPerson;
-            var point = BAD_PATROL_POINTS[Math.floor(Math.random() * BAD_PATROL_POINTS.length)];
-            badPerson.patrolX = point.x;
-            badPerson.patrolY = point.y;
+            var step = Math.min(targetDistance, badPerson.speed * delta);
+            badPerson.angle = Math.atan2(dy, dx);
+            badPerson.x += (dx / targetDistance) * step;
+            badPerson.y += (dy / targetDistance) * step;
         }
 
         function spawnBadPerson() {
             var badPerson = game.badPerson;
-            var bestPoint = BAD_SPAWN_POINTS[0];
-            var bestDistance = -1;
-
-            BAD_SPAWN_POINTS.forEach(function (point) {
-                var playerDistance = distance(point, game.player);
-                if (playerDistance > bestDistance) {
-                    bestDistance = playerDistance;
-                    bestPoint = point;
-                }
-            });
-
-            badPerson.x = bestPoint.x;
-            badPerson.y = bestPoint.y;
-            badPerson.targetX = bestPoint.x;
-            badPerson.targetY = bestPoint.y;
+            var spawn = findBadPersonEdgePoint(BAD_PERSON_SAFE_DISTANCE);
+            badPerson.x = spawn.x;
+            badPerson.y = spawn.y;
+            badPerson.targetX = spawn.x;
+            badPerson.targetY = spawn.y;
             badPerson.hiddenTime = 0;
-            chooseBadPatrolTarget();
+            badPerson.releaseAnimal = null;
+            badPerson.dropPoint = null;
+
+            if (game.rescued > 0) {
+                planBadPersonReleaseRun();
+            } else {
+                planBadPersonPatrolRoute();
+            }
         }
 
-        function sendBadPersonAway(seconds) {
+        function sendBadPersonAway() {
             var badPerson = game.badPerson;
-            badPerson.hiddenTime = seconds;
-            badPerson.x = -80;
-            badPerson.y = -80;
+            if (badPerson.releaseAnimal) {
+                dropReleasedAnimal();
+            }
+            badPerson.hiddenTime = randomBadPersonDelay();
+            badPerson.mode = "hidden";
+            badPerson.route = [];
+            badPerson.routeIndex = 0;
+            badPerson.releaseAnimal = null;
+            badPerson.dropPoint = null;
+            badPerson.x = -BAD_PERSON_EDGE_OFFSET;
+            badPerson.y = -BAD_PERSON_EDGE_OFFSET;
         }
 
-        function stealRescuedAnimal() {
-            var animal = findRescuedAnimal();
-            if (!animal) {
+        function advanceBadPersonRoute(target) {
+            var badPerson = game.badPerson;
+            if (target.action === "release") {
+                releaseRescuedAnimal();
                 return;
             }
 
-            var spot = findStolenAnimalSpot(animal);
+            if (target.action === "drop") {
+                dropReleasedAnimal();
+                sendBadPersonAway();
+                return;
+            }
+
+            badPerson.routeIndex += 1;
+            if (badPerson.routeIndex >= badPerson.route.length) {
+                sendBadPersonAway();
+            }
+        }
+
+        function planBadPersonPatrolRoute() {
+            var badPerson = game.badPerson;
+            setBadPersonRoute("patrol", [
+                findSneakyPoint(badPerson),
+                findSneakyPoint(badPerson),
+                findBadPersonEdgePoint(BAD_PERSON_SAFE_DISTANCE)
+            ]);
+        }
+
+        function planBadPersonReleaseRun() {
+            var badPerson = game.badPerson;
+            var zoo = game.zoo;
+            var approach = findZooApproachPoint();
+            setBadPersonRoute("release", [
+                findSneakyPoint(badPerson),
+                approach,
+                {
+                    x: zoo.x + zoo.w / 2,
+                    y: zoo.y + zoo.h / 2,
+                    radius: 20,
+                    action: "release"
+                }
+            ]);
+        }
+
+        function planBadPersonExitRoute() {
+            var exit = findBadPersonEdgePoint(BAD_PERSON_SAFE_DISTANCE);
+            setBadPersonRoute("exit", [
+                findSneakyPoint(game.badPerson),
+                {
+                    x: exit.x,
+                    y: exit.y,
+                    radius: 16,
+                    action: "drop"
+                }
+            ]);
+            game.badPerson.dropPoint = edgeDropPoint(exit, game.badPerson.releaseAnimal ? game.badPerson.releaseAnimal.r : game.badPerson.r);
+        }
+
+        function setBadPersonRoute(mode, route) {
+            var badPerson = game.badPerson;
+            badPerson.mode = mode;
+            badPerson.route = route;
+            badPerson.routeIndex = 0;
+        }
+
+        function releaseRescuedAnimal() {
+            var animal = findRescuedAnimal();
+            if (!animal) {
+                planBadPersonExitRoute();
+                return;
+            }
+
+            var badPerson = game.badPerson;
+            var exit = findBadPersonEdgePoint(BAD_PERSON_SAFE_DISTANCE);
             animal.rescued = false;
-            animal.carried = false;
+            animal.carried = true;
             animal.rescueOrder = 0;
-            animal.x = spot.x;
-            animal.y = spot.y;
-            animal.angle = Math.random() * Math.PI * 2;
-            animal.wanderTime = 0.6 + Math.random();
             game.rescued = Math.max(0, game.rescued - 1);
             layoutRescuedAnimals();
-            sendBadPersonAway(BAD_PERSON_STEAL_DELAY);
+            badPerson.releaseAnimal = animal;
+            badPerson.dropPoint = edgeDropPoint(exit, animal.r);
+            setBadPersonRoute("exit", [
+                findSneakyPoint(badPerson),
+                {
+                    x: exit.x,
+                    y: exit.y,
+                    radius: 16,
+                    action: "drop"
+                }
+            ]);
         }
 
         function findRescuedAnimal() {
@@ -565,21 +631,69 @@
             return latestAnimal;
         }
 
-        function findStolenAnimalSpot(animal) {
+        function recoverReleasedAnimal() {
+            var badPerson = game.badPerson;
+            var animal = badPerson.releaseAnimal;
+            if (!animal) {
+                return;
+            }
+
+            animal.rescued = true;
+            animal.carried = false;
+            game.rescueSequence += 1;
+            animal.rescueOrder = game.rescueSequence;
+            game.rescued += 1;
+            badPerson.releaseAnimal = null;
+            badPerson.dropPoint = null;
+            layoutRescuedAnimals();
+        }
+
+        function dropReleasedAnimal() {
+            var badPerson = game.badPerson;
+            var animal = badPerson.releaseAnimal;
+            if (!animal) {
+                return;
+            }
+
+            var spot = badPerson.dropPoint || edgeDropPoint(badPerson, animal.r);
+            animal.carried = false;
+            animal.rescued = false;
+            animal.rescueOrder = 0;
+            animal.x = spot.x;
+            animal.y = spot.y;
+            animal.angle = angleFromEdge(spot);
+            animal.wanderTime = 0.6 + Math.random();
+            badPerson.releaseAnimal = null;
+            badPerson.dropPoint = null;
+        }
+
+        function updateReleasedAnimal() {
+            var badPerson = game.badPerson;
+            var animal = badPerson.releaseAnimal;
+            if (!animal) {
+                return;
+            }
+
+            animal.x = badPerson.x - Math.cos(badPerson.angle) * 26;
+            animal.y = badPerson.y - Math.sin(badPerson.angle) * 26;
+            animal.angle = badPerson.angle;
+        }
+
+        function findSneakyPoint(fromPoint) {
             var zooBuffer = {
-                x: game.zoo.x - 80,
-                y: game.zoo.y - 80,
-                w: game.zoo.w + 160,
-                h: game.zoo.h + 160
+                x: game.zoo.x - 90,
+                y: game.zoo.y - 90,
+                w: game.zoo.w + 180,
+                h: game.zoo.h + 180
             };
 
             for (var attempt = 0; attempt < 80; attempt += 1) {
                 var spot = {
-                    x: animal.r + 32 + Math.random() * (WORLD_WIDTH - animal.r * 2 - 64),
-                    y: animal.r + 32 + Math.random() * (WORLD_HEIGHT - animal.r * 2 - 64),
-                    r: animal.r
+                    x: 76 + Math.random() * (WORLD_WIDTH - 152),
+                    y: 76 + Math.random() * (WORLD_HEIGHT - 152),
+                    r: game.badPerson.r
                 };
-                if (pointInRect(spot.x, spot.y, zooBuffer) || distance(spot, game.player) < 140) {
+                if (pointInRect(spot.x, spot.y, zooBuffer) || distance(spot, game.player) < 120 || distance(spot, fromPoint) < 120) {
                     continue;
                 }
                 if (isBlockedByObstacle(spot)) {
@@ -588,7 +702,78 @@
                 return spot;
             }
 
-            return { x: WORLD_WIDTH - animal.r - 44, y: WORLD_HEIGHT - animal.r - 44 };
+            return { x: WORLD_WIDTH * 0.72, y: WORLD_HEIGHT * 0.74, r: game.badPerson.r };
+        }
+
+        function findZooApproachPoint() {
+            var zoo = game.zoo;
+            var points = [
+                { x: zoo.x + zoo.w + 92, y: zoo.y + zoo.h + 76 },
+                { x: zoo.x + zoo.w + 118, y: zoo.y + zoo.h / 2 },
+                { x: zoo.x + zoo.w / 2, y: zoo.y + zoo.h + 104 },
+                { x: zoo.x + zoo.w + 148, y: zoo.y + zoo.h + 124 }
+            ];
+            return points[Math.floor(Math.random() * points.length)];
+        }
+
+        function findBadPersonEdgePoint(minPlayerDistance) {
+            var zooCenter = {
+                x: game.zoo.x + game.zoo.w / 2,
+                y: game.zoo.y + game.zoo.h / 2
+            };
+            var bestPoint = randomBadPersonEdgePoint();
+            var bestScore = -1;
+
+            for (var attempt = 0; attempt < 60; attempt += 1) {
+                var point = randomBadPersonEdgePoint();
+                var playerDistance = distance(point, game.player);
+                var zooDistance = distance(point, zooCenter);
+                var score = Math.min(playerDistance, minPlayerDistance) + Math.min(zooDistance, BAD_PERSON_ZOO_DISTANCE) + Math.random() * 40;
+                if (playerDistance >= minPlayerDistance && zooDistance >= BAD_PERSON_ZOO_DISTANCE) {
+                    return point;
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestPoint = point;
+                }
+            }
+
+            return bestPoint;
+        }
+
+        function randomBadPersonEdgePoint() {
+            var edge = Math.floor(Math.random() * 4);
+            if (edge === 0) {
+                return { x: Math.random() * WORLD_WIDTH, y: -BAD_PERSON_EDGE_OFFSET };
+            }
+            if (edge === 1) {
+                return { x: WORLD_WIDTH + BAD_PERSON_EDGE_OFFSET, y: Math.random() * WORLD_HEIGHT };
+            }
+            if (edge === 2) {
+                return { x: Math.random() * WORLD_WIDTH, y: WORLD_HEIGHT + BAD_PERSON_EDGE_OFFSET };
+            }
+            return { x: -BAD_PERSON_EDGE_OFFSET, y: Math.random() * WORLD_HEIGHT };
+        }
+
+        function edgeDropPoint(edgePoint, radius) {
+            var padding = radius + 8;
+            return {
+                x: clamp(edgePoint.x, padding, WORLD_WIDTH - padding),
+                y: clamp(edgePoint.y, padding, WORLD_HEIGHT - padding)
+            };
+        }
+
+        function angleFromEdge(point) {
+            if (point.x <= 30) {
+                return 0;
+            }
+            if (point.x >= WORLD_WIDTH - 30) {
+                return Math.PI;
+            }
+            if (point.y <= 30) {
+                return Math.PI / 2;
+            }
+            return -Math.PI / 2;
         }
 
         function isBlockedByObstacle(entity) {
@@ -1193,20 +1378,25 @@
     }
 
     function createBadPerson() {
-        var spawn = BAD_SPAWN_POINTS[0];
-        var patrol = BAD_PATROL_POINTS[0];
         return {
-            x: spawn.x,
-            y: spawn.y,
-            targetX: spawn.x,
-            targetY: spawn.y,
-            patrolX: patrol.x,
-            patrolY: patrol.y,
+            x: -BAD_PERSON_EDGE_OFFSET,
+            y: -BAD_PERSON_EDGE_OFFSET,
+            targetX: -BAD_PERSON_EDGE_OFFSET,
+            targetY: -BAD_PERSON_EDGE_OFFSET,
             r: 18,
             speed: BAD_PERSON_SPEED,
             angle: Math.PI,
-            hiddenTime: 0
+            hiddenTime: randomBadPersonDelay(),
+            mode: "hidden",
+            route: [],
+            routeIndex: 0,
+            releaseAnimal: null,
+            dropPoint: null
         };
+    }
+
+    function randomBadPersonDelay() {
+        return BAD_PERSON_HIDE_MIN + Math.random() * (BAD_PERSON_HIDE_MAX - BAD_PERSON_HIDE_MIN);
     }
 
     function loadAnimalSprites() {
