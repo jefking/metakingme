@@ -5,6 +5,25 @@
     var WORLD_WIDTH = 960;
     var WORLD_HEIGHT = 620;
     var MAX_OBSTACLES = 28;
+    var SPRITE_SIZE = 32;
+    var ANIMAL_SPRITE_PATHS = {
+        zebra: "./images/zebra.png",
+        turtle: "./images/turtle.png",
+        squirrel: "./images/squirrel.png",
+        hippo: "./images/hippo.png",
+        giraffe: "./images/giraffe.png",
+        butterfly: "./images/butterfly.png",
+        cow: "./images/cow.png"
+    };
+    var ANIMAL_SPECS = [
+        { name: "Zebra", kind: "zebra", x: 720, y: 130, radius: 17, speed: 116 },
+        { name: "Turtle", kind: "turtle", x: 815, y: 500, radius: 16, speed: 54 },
+        { name: "Squirrel", kind: "squirrel", x: 360, y: 480, radius: 14, speed: 150 },
+        { name: "Hippo", kind: "hippo", x: 570, y: 430, radius: 21, speed: 72 },
+        { name: "Giraffe", kind: "giraffe", x: 705, y: 330, radius: 19, speed: 98 },
+        { name: "Butterfly", kind: "butterfly", x: 450, y: 130, radius: 13, speed: 138 },
+        { name: "Cow", kind: "cow", x: 280, y: 300, radius: 17, speed: 92 }
+    ];
     var defaultSettings = {
         highContrast: false,
         reducedMotion: false,
@@ -22,6 +41,7 @@
         route: getRoute(),
         settings: loadSettings()
     };
+    var animalSprites = loadAnimalSprites();
 
     function getRoute() {
         var route = window.location.hash.replace(/^#\/?/, "");
@@ -96,7 +116,7 @@
             '    <p class="eyebrow">Pac-style rescue run</p>',
             '    <h1 id="game-title">Zoo Rescue</h1>',
             '    <div class="game-stats" aria-label="Game status">',
-            metricView("Rescued", '<span data-rescued>0 / 6</span>'),
+            metricView("Rescued", '<span data-rescued>0 / ' + ANIMAL_SPECS.length + '</span>'),
             metricView("Carrying", '<span data-carrying>None</span>'),
             metricView("Obstacles", '<span data-growth>0</span>'),
             "    </div>",
@@ -207,6 +227,7 @@
             canvas.width = Math.round(rect.width * dpr);
             canvas.height = Math.round(rect.height * dpr);
             context.setTransform(canvas.width / WORLD_WIDTH, 0, 0, canvas.height / WORLD_HEIGHT, 0, 0);
+            context.imageSmoothingEnabled = false;
         }
 
         function setTarget(event) {
@@ -476,6 +497,11 @@
             context.save();
             context.translate(animal.x, animal.y);
             context.rotate(Math.sin(performance.now() / 260 + animal.x) * 0.05);
+            if (drawAnimalSprite(animal)) {
+                context.restore();
+                drawAnimalLabel(animal);
+                return;
+            }
             if (animal.kind === "zebra") {
                 drawZebra(animal);
             } else if (animal.kind === "turtle") {
@@ -486,11 +512,53 @@
                 drawHippo(animal);
             } else if (animal.kind === "giraffe") {
                 drawGiraffe(animal);
+            } else if (animal.kind === "cow") {
+                drawCow(animal);
             } else {
                 drawButterfly(animal);
             }
             context.restore();
             drawAnimalLabel(animal);
+        }
+
+        function drawAnimalSprite(animal) {
+            var image = animalSprites[animal.kind];
+            if (!image || !image.complete || !image.naturalWidth) {
+                return false;
+            }
+
+            var direction = getSpriteDirection(animal);
+            var rowOffset = direction === "front" ? 1 : direction === "back" ? 2 : 0;
+            var moving = !settings.reducedMotion && !animal.rescued;
+            var row = (moving ? 3 : 0) + rowOffset;
+            var frames = moving ? 8 : 2;
+            var frame = moving ? Math.floor(performance.now() / 130 + animal.spriteOffset) % frames : 0;
+            var drawSize = Math.max(SPRITE_SIZE, Math.round(animal.r * 2.75));
+
+            if (direction === "side" && Math.cos(animal.angle) < 0) {
+                context.scale(-1, 1);
+            }
+
+            context.imageSmoothingEnabled = false;
+            context.drawImage(
+                image,
+                frame * SPRITE_SIZE,
+                row * SPRITE_SIZE,
+                SPRITE_SIZE,
+                SPRITE_SIZE,
+                -drawSize / 2,
+                -drawSize / 2,
+                drawSize,
+                drawSize
+            );
+            return true;
+        }
+
+        function getSpriteDirection(animal) {
+            if (Math.abs(Math.sin(animal.angle)) > 0.68) {
+                return Math.sin(animal.angle) > 0 ? "front" : "back";
+            }
+            return "side";
         }
 
         function drawZebra(animal) {
@@ -575,6 +643,25 @@
             context.stroke();
         }
 
+        function drawCow(animal) {
+            context.fillStyle = "#f8f8f8";
+            context.strokeStyle = "#1d1f1f";
+            context.lineWidth = 2;
+            context.beginPath();
+            context.ellipse(0, 0, animal.r * 1.1, animal.r * 0.7, 0, 0, Math.PI * 2);
+            context.fill();
+            context.stroke();
+            context.fillStyle = "#1d1f1f";
+            context.beginPath();
+            context.arc(-animal.r * 0.35, -animal.r * 0.08, animal.r * 0.26, 0, Math.PI * 2);
+            context.arc(animal.r * 0.18, animal.r * 0.12, animal.r * 0.22, 0, Math.PI * 2);
+            context.fill();
+            context.fillStyle = "#fcb4b8";
+            context.beginPath();
+            context.ellipse(animal.r * 0.62, 0, animal.r * 0.42, animal.r * 0.36, 0, 0, Math.PI * 2);
+            context.fill();
+        }
+
         function drawAnimalLabel(animal) {
             if (animal.carried) {
                 return;
@@ -647,14 +734,7 @@
         var game = {
             zoo: { x: 38, y: 38, w: 148, h: 106 },
             player: { x: 125, y: 205, targetX: 125, targetY: 205, r: 17, speed: 220, carrying: null },
-            animals: [
-                createAnimal("Zebra", "zebra", 720, 130, 17, 116),
-                createAnimal("Turtle", "turtle", 815, 500, 16, 54),
-                createAnimal("Squirrel", "squirrel", 360, 480, 14, 150),
-                createAnimal("Hippo", "hippo", 570, 430, 21, 72),
-                createAnimal("Giraffe", "giraffe", 705, 330, 19, 98),
-                createAnimal("Butterfly", "butterfly", 450, 130, 13, 138)
-            ],
+            animals: createAnimals(),
             obstacles: [],
             rescued: 0,
             message: "Catch loose animals and return them to the zoo."
@@ -671,6 +751,22 @@
         return game;
     }
 
+    function loadAnimalSprites() {
+        var sprites = {};
+        Object.keys(ANIMAL_SPRITE_PATHS).forEach(function (kind) {
+            var image = new Image();
+            image.src = ANIMAL_SPRITE_PATHS[kind];
+            sprites[kind] = image;
+        });
+        return sprites;
+    }
+
+    function createAnimals() {
+        return ANIMAL_SPECS.map(function (spec) {
+            return createAnimal(spec.name, spec.kind, spec.x, spec.y, spec.radius, spec.speed);
+        });
+    }
+
     function createAnimal(name, kind, x, y, radius, speed) {
         return {
             name: name,
@@ -681,6 +777,7 @@
             speed: speed,
             angle: Math.random() * Math.PI * 2,
             wanderTime: 0.5 + Math.random(),
+            spriteOffset: Math.floor(Math.random() * 8),
             carried: false,
             rescued: false
         };
