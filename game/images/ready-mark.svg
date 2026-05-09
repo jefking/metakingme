@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 240" role="img" aria-labelledby="title desc">
+  <title id="title">Game space ready mark</title>
+  <desc id="desc">Abstract game board with play pieces</desc>
+  <rect width="360" height="240" rx="8" fill="#1d1f1f"/>
+  <path fill="#0f8a7a" d="M44 44h104v64H44z"/>
+  <path fill="#f2b544" d="M212 44h104v64H212z"/>
+  <path fill="#d84d66" d="M44 142h104v54H44z"/>
+  <path fill="#edf6f4" d="M212 142h104v54H212z"/>
+  <circle cx="180" cy="120" r="34" fill="#ffffff"/>
+  <path fill="#1d1f1f" d="M171 101l35 19-35 19z"/>
+  <path fill="none" stroke="#ffffff" stroke-width="10" d="M148 76l32-32 32 32M148 164l32 32 32-32"/>
+</svg>
