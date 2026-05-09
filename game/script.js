@@ -7,6 +7,19 @@
     var MAX_OBSTACLES = 28;
     var SPRITE_SIZE = 32;
     var GRASS_TILE_SIZE = 32;
+    var BAD_PERSON_SPEED = 320;
+    var BAD_PERSON_PLAYER_DELAY = 5;
+    var BAD_PERSON_STEAL_DELAY = 7;
+    var BAD_SPAWN_POINTS = [
+        { x: WORLD_WIDTH - 70, y: WORLD_HEIGHT - 70 },
+        { x: WORLD_WIDTH - 70, y: 72 },
+        { x: WORLD_WIDTH * 0.58, y: WORLD_HEIGHT - 66 }
+    ];
+    var BAD_PATROL_POINTS = [
+        { x: WORLD_WIDTH - 82, y: WORLD_HEIGHT - 82 },
+        { x: WORLD_WIDTH - 88, y: 88 },
+        { x: WORLD_WIDTH * 0.56, y: WORLD_HEIGHT - 92 }
+    ];
     var ANIMAL_SPRITE_PATHS = {
         zebra: "./images/zebra.png",
         turtle: "./images/turtle.png",
@@ -181,15 +194,9 @@
     }
 
     var state = {
-        route: getRoute(),
         settings: loadSettings()
     };
     var animalSprites = loadAnimalSprites();
-
-    function getRoute() {
-        var route = window.location.hash.replace(/^#\/?/, "");
-        return route === "settings" ? "settings" : "play";
-    }
 
     function loadSettings() {
         try {
@@ -200,26 +207,10 @@
         }
     }
 
-    function saveSettings() {
-        try {
-            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.settings));
-        } catch (error) {
-            return;
-        }
-    }
-
     function setDocumentFlags() {
         document.documentElement.dataset.contrast = state.settings.highContrast ? "high" : "standard";
         document.documentElement.dataset.motion = state.settings.reducedMotion ? "reduced" : "standard";
         document.documentElement.dataset.text = state.settings.largeText ? "large" : "standard";
-    }
-
-    function checked(setting) {
-        return state.settings[setting] ? "checked" : "";
-    }
-
-    function current(route) {
-        return state.route === route ? 'aria-current="page"' : "";
     }
 
     function render() {
@@ -229,90 +220,26 @@
         app.innerHTML = [
             '<div class="app-shell">',
             '  <header class="shell-header">',
-            '    <a class="brand" href="#play" data-route="play">',
+            '    <h1 class="brand">',
             '      <span class="brand-mark" aria-hidden="true"></span>',
             '      <span>Zoo Rescue</span>',
-            '    </a>',
-            '    <nav class="nav" aria-label="Game app">',
-            '      <a class="nav-link" href="#play" data-route="play" ' + current("play") + ">Stage</a>",
-            '      <a class="nav-link" href="#settings" data-route="settings" ' + current("settings") + ">Access</a>",
-            "    </nav>",
+            '    </h1>',
+            '    <button class="button primary shell-restart" type="button" data-action="restart-game">Restart</button>',
             "  </header>",
             '  <main class="shell-main" id="main">',
-            state.route === "settings" ? settingsView() : playView(),
+            playView(),
             "  </main>",
-            '  <footer class="shell-footer">',
-            "    Zoo Rescue runs standalone inside /game.",
-            "  </footer>",
             "</div>"
         ].join("");
 
-        if (state.route === "play") {
-            window.requestAnimationFrame(startGame);
-        }
+        startGame();
     }
 
     function playView() {
         return [
-            '<section class="game-view" aria-labelledby="game-title">',
-            '  <div class="game-heading">',
-            '    <p class="eyebrow">Pac-style rescue run</p>',
-            '    <h1 id="game-title">Zoo Rescue</h1>',
-            '    <div class="game-stats" aria-label="Game status">',
-            metricView("Rescued", '<span data-rescued>0 / ' + ANIMAL_SPECS.length + '</span>'),
-            metricView("Carrying", '<span data-carrying>None</span>'),
-            metricView("Obstacles", '<span data-growth>0</span>'),
-            "    </div>",
-            "  </div>",
-            '  <section class="stage-panel" aria-label="Zoo Rescue game stage" tabindex="-1" data-stage>',
-            '    <canvas class="game-canvas" width="' + WORLD_WIDTH + '" height="' + WORLD_HEIGHT + '" data-game-canvas aria-label="Mouse controlled zoo rescue game"></canvas>',
-            '    <div class="stage-toolbar" aria-live="polite">',
-            '      <span data-status>Catch loose animals and return them to the zoo.</span>',
-            '      <button class="button primary" type="button" data-action="restart-game">Restart</button>',
-            "    </div>",
+            '<section class="game-view" aria-label="Zoo Rescue game stage" tabindex="-1" data-stage>',
+            '  <canvas class="game-canvas" width="' + WORLD_WIDTH + '" height="' + WORLD_HEIGHT + '" data-game-canvas aria-label="Mouse controlled zoo rescue game"></canvas>',
             "  </section>",
-            "</section>"
-        ].join("");
-    }
-
-    function metricView(label, value) {
-        return [
-            '<div class="metric">',
-            "  <span>" + label + "</span>",
-            "  <strong>" + value + "</strong>",
-            "</div>"
-        ].join("");
-    }
-
-    function settingsView() {
-        return [
-            '<section class="settings-view" aria-labelledby="settings-title">',
-            '  <div class="settings-intro">',
-            '    <p class="eyebrow">Player options</p>',
-            '    <h2 id="settings-title">Access settings</h2>',
-            '    <p class="lead">Preferences save in this browser and apply to the game stage.</p>',
-            "  </div>",
-            '  <div class="settings-panel">',
-            settingRow("highContrast", "High contrast", "Increase visual contrast for text and controls."),
-            settingRow("reducedMotion", "Reduced motion", "Slow moving parts and reduce growth animation."),
-            settingRow("largeText", "Large text", "Increase interface text size."),
-            "  </div>",
-            "</section>"
-        ].join("");
-    }
-
-    function settingRow(key, title, description) {
-        return [
-            '<label class="setting-row">',
-            '  <span class="setting-copy">',
-            "    <strong>" + title + "</strong>",
-            "    <span>" + description + "</span>",
-            "  </span>",
-            '  <span class="switch">',
-            '    <input type="checkbox" data-setting="' + key + '" ' + checked(key) + ">",
-            '    <span aria-hidden="true"></span>',
-            "  </span>",
-            "</label>"
         ].join("");
     }
 
@@ -333,10 +260,6 @@
 
     function createZooRescueGame(canvas, settings) {
         var context = canvas.getContext("2d");
-        var status = app.querySelector("[data-status]");
-        var rescuedStat = app.querySelector("[data-rescued]");
-        var carryingStat = app.querySelector("[data-carrying]");
-        var growthStat = app.querySelector("[data-growth]");
         var dpr = window.devicePixelRatio || 1;
         var running = true;
         var animationFrame = 0;
@@ -348,13 +271,13 @@
         canvas.addEventListener("pointermove", setTarget);
         canvas.addEventListener("pointerdown", setTarget);
         window.addEventListener("resize", resizeCanvas);
+        draw();
         animationFrame = window.requestAnimationFrame(loop);
 
         function reset() {
             game = createInitialGame(settings);
             lastTime = performance.now();
             nextGrowth = 4;
-            updateHud();
         }
 
         function destroy() {
@@ -400,18 +323,25 @@
         }
 
         function update(delta) {
+            if (game.ended) {
+                return;
+            }
+
             var speedFactor = settings.reducedMotion ? 0.55 : 1;
             movePlayer(delta * speedFactor);
             moveAnimals(delta * speedFactor);
+            moveBadPerson(delta, settings.reducedMotion ? 0.7 : 1);
             updateCarriedAnimal();
             checkCatchAndDrop();
+            if (game.ended) {
+                return;
+            }
             growObstacles(delta);
             nextGrowth -= delta;
             if (nextGrowth <= 0) {
                 addGrowingObstacle();
                 nextGrowth = 6 + Math.random() * 4;
             }
-            updateHud();
         }
 
         function movePlayer(delta) {
@@ -455,6 +385,150 @@
                     animal.angle = -animal.angle;
                 }
             });
+        }
+
+        function moveBadPerson(delta, speedFactor) {
+            var badPerson = game.badPerson;
+            if (badPerson.hiddenTime > 0) {
+                badPerson.hiddenTime = Math.max(0, badPerson.hiddenTime - delta);
+                if (badPerson.hiddenTime === 0) {
+                    spawnBadPerson();
+                }
+                return;
+            }
+
+            var target = getBadPersonTarget();
+            var dx = target.x - badPerson.x;
+            var dy = target.y - badPerson.y;
+            var targetDistance = Math.hypot(dx, dy);
+            if (targetDistance > 1) {
+                var step = Math.min(targetDistance, badPerson.speed * speedFactor * delta);
+                badPerson.angle = Math.atan2(dy, dx);
+                moveEntity(badPerson, (dx / targetDistance) * step, (dy / targetDistance) * step);
+            }
+
+            if (distance(badPerson, game.player) < badPerson.r + game.player.r + 4) {
+                sendBadPersonAway(BAD_PERSON_PLAYER_DELAY);
+                return;
+            }
+
+            if (game.rescued > 0 && pointInRect(badPerson.x, badPerson.y, game.zoo)) {
+                stealRescuedAnimal();
+            }
+        }
+
+        function getBadPersonTarget() {
+            var badPerson = game.badPerson;
+            if (game.rescued > 0) {
+                return {
+                    x: game.zoo.x + game.zoo.w / 2,
+                    y: game.zoo.y + game.zoo.h / 2
+                };
+            }
+
+            if (distance(badPerson, { x: badPerson.patrolX, y: badPerson.patrolY }) < 22) {
+                chooseBadPatrolTarget();
+            }
+
+            return { x: badPerson.patrolX, y: badPerson.patrolY };
+        }
+
+        function chooseBadPatrolTarget() {
+            var badPerson = game.badPerson;
+            var point = BAD_PATROL_POINTS[Math.floor(Math.random() * BAD_PATROL_POINTS.length)];
+            badPerson.patrolX = point.x;
+            badPerson.patrolY = point.y;
+        }
+
+        function spawnBadPerson() {
+            var badPerson = game.badPerson;
+            var bestPoint = BAD_SPAWN_POINTS[0];
+            var bestDistance = -1;
+
+            BAD_SPAWN_POINTS.forEach(function (point) {
+                var playerDistance = distance(point, game.player);
+                if (playerDistance > bestDistance) {
+                    bestDistance = playerDistance;
+                    bestPoint = point;
+                }
+            });
+
+            badPerson.x = bestPoint.x;
+            badPerson.y = bestPoint.y;
+            badPerson.targetX = bestPoint.x;
+            badPerson.targetY = bestPoint.y;
+            badPerson.hiddenTime = 0;
+            chooseBadPatrolTarget();
+        }
+
+        function sendBadPersonAway(seconds) {
+            var badPerson = game.badPerson;
+            badPerson.hiddenTime = seconds;
+            badPerson.x = -80;
+            badPerson.y = -80;
+        }
+
+        function stealRescuedAnimal() {
+            var animal = findRescuedAnimal();
+            if (!animal) {
+                return;
+            }
+
+            var spot = findStolenAnimalSpot(animal);
+            animal.rescued = false;
+            animal.carried = false;
+            animal.rescueOrder = 0;
+            animal.x = spot.x;
+            animal.y = spot.y;
+            animal.angle = Math.random() * Math.PI * 2;
+            animal.wanderTime = 0.6 + Math.random();
+            game.rescued = Math.max(0, game.rescued - 1);
+            sendBadPersonAway(BAD_PERSON_STEAL_DELAY);
+        }
+
+        function findRescuedAnimal() {
+            var latestAnimal = null;
+            for (var index = game.animals.length - 1; index >= 0; index -= 1) {
+                if (game.animals[index].rescued && (!latestAnimal || game.animals[index].rescueOrder > latestAnimal.rescueOrder)) {
+                    latestAnimal = game.animals[index];
+                }
+            }
+            return latestAnimal;
+        }
+
+        function findStolenAnimalSpot(animal) {
+            var zooBuffer = {
+                x: game.zoo.x - 80,
+                y: game.zoo.y - 80,
+                w: game.zoo.w + 160,
+                h: game.zoo.h + 160
+            };
+
+            for (var attempt = 0; attempt < 80; attempt += 1) {
+                var spot = {
+                    x: animal.r + 32 + Math.random() * (WORLD_WIDTH - animal.r * 2 - 64),
+                    y: animal.r + 32 + Math.random() * (WORLD_HEIGHT - animal.r * 2 - 64),
+                    r: animal.r
+                };
+                if (pointInRect(spot.x, spot.y, zooBuffer) || distance(spot, game.player) < 140) {
+                    continue;
+                }
+                if (isBlockedByObstacle(spot)) {
+                    continue;
+                }
+                return spot;
+            }
+
+            return { x: WORLD_WIDTH - animal.r - 44, y: WORLD_HEIGHT - animal.r - 44 };
+        }
+
+        function isBlockedByObstacle(entity) {
+            for (var index = 0; index < game.obstacles.length; index += 1) {
+                if (distance(entity, game.obstacles[index]) < entity.r + game.obstacles[index].radius + 18) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         function chooseAnimalDirection(animal) {
@@ -501,7 +575,6 @@
                     if (!animal.rescued && !animal.carried && distance(player, animal) < player.r + animal.r + 4) {
                         animal.carried = true;
                         player.carrying = animal;
-                        game.message = animal.name + " caught.";
                         return true;
                     }
                     return false;
@@ -511,16 +584,25 @@
             if (player.carrying && pointInRect(player.x, player.y, game.zoo)) {
                 player.carrying.rescued = true;
                 player.carrying.carried = false;
+                game.rescueSequence += 1;
+                player.carrying.rescueOrder = game.rescueSequence;
                 player.carrying.x = game.zoo.x + game.zoo.w - 26;
                 player.carrying.y = game.zoo.y + 24 + game.rescued * 14;
                 game.rescued += 1;
-                game.message = player.carrying.name + " returned to zoo.";
                 player.carrying = null;
             }
 
             if (game.rescued === game.animals.length) {
-                game.message = "All animals safe at zoo.";
+                endGame();
             }
+        }
+
+        function endGame() {
+            if (game.ended) {
+                return;
+            }
+            game.ended = true;
+            game.score = game.rescued;
         }
 
         function growObstacles(delta) {
@@ -540,22 +622,6 @@
             var obstacle = placeObstacle(true, game);
             if (obstacle) {
                 game.obstacles.push(obstacle);
-                game.message = obstacle.type === "tree" ? "Tree grew near path." : "Brush grew near path.";
-            }
-        }
-
-        function updateHud() {
-            if (rescuedStat) {
-                rescuedStat.textContent = game.rescued + " / " + game.animals.length;
-            }
-            if (carryingStat) {
-                carryingStat.textContent = game.player.carrying ? game.player.carrying.name : "None";
-            }
-            if (growthStat) {
-                growthStat.textContent = String(game.obstacles.length);
-            }
-            if (status) {
-                status.textContent = game.message;
             }
         }
 
@@ -577,8 +643,13 @@
                     drawAnimal(animal);
                 }
             });
+            drawBadPerson();
             drawPlayer(palette);
-            drawTarget();
+            if (!game.ended) {
+                drawTarget();
+            } else {
+                drawEndScore();
+            }
         }
 
         function drawField(palette) {
@@ -631,7 +702,6 @@
             context.rotate(Math.sin(performance.now() / 260 + animal.x) * 0.05);
             if (drawAnimalSprite(animal)) {
                 context.restore();
-                drawAnimalLabel(animal);
                 return;
             }
             if (animal.kind === "zebra") {
@@ -650,7 +720,6 @@
                 drawButterfly(animal);
             }
             context.restore();
-            drawAnimalLabel(animal);
         }
 
         function drawAnimalSprite(animal) {
@@ -794,24 +863,49 @@
             context.fill();
         }
 
-        function drawAnimalLabel(animal) {
-            if (animal.carried) {
-                return;
-            }
-            context.fillStyle = settings.highContrast ? "#ffffff" : "#20311e";
-            context.font = "700 " + (settings.largeText ? 15 : 12) + "px system-ui, sans-serif";
-            context.textAlign = "center";
-            context.fillText(animal.name, animal.x, animal.y + animal.r + 15);
-        }
-
         function drawPlayer(palette) {
             var player = game.player;
             drawPixelSprite(WORKER_SPRITE, player.x, player.y - 8, 3, palette);
+        }
 
-            context.fillStyle = settings.highContrast ? "#ffffff" : "#1d1f1f";
-            context.font = "800 13px system-ui, sans-serif";
-            context.textAlign = "center";
-            context.fillText("Worker", player.x, player.y + 36);
+        function drawBadPerson() {
+            var badPerson = game.badPerson;
+            if (!badPerson || badPerson.hiddenTime > 0 || game.ended) {
+                return;
+            }
+
+            context.save();
+            context.translate(badPerson.x, badPerson.y);
+            context.rotate(badPerson.angle);
+            context.fillStyle = settings.highContrast ? "#ff5fb7" : "#6f1d2d";
+            context.beginPath();
+            context.arc(0, -8, 11, 0, Math.PI * 2);
+            context.fill();
+            context.fillStyle = settings.highContrast ? "#ffffff" : "#242424";
+            context.fillRect(-13, -24, 26, 7);
+            context.fillRect(-8, -33, 16, 11);
+            context.fillStyle = settings.highContrast ? "#ffe600" : "#f5d2a4";
+            context.beginPath();
+            context.arc(0, -20, 8, 0, Math.PI * 2);
+            context.fill();
+            context.fillStyle = settings.highContrast ? "#000000" : "#1f1f1f";
+            context.fillRect(-8, -22, 16, 4);
+            context.fillStyle = settings.highContrast ? "#00e5ff" : "#3b3b42";
+            context.fillRect(-8, 2, 6, 18);
+            context.fillRect(2, 2, 6, 18);
+            context.strokeStyle = settings.highContrast ? "#ffffff" : "#451421";
+            context.lineWidth = 4;
+            context.beginPath();
+            context.moveTo(-12, -5);
+            context.lineTo(-23, 3);
+            context.moveTo(12, -5);
+            context.lineTo(23, 3);
+            context.stroke();
+            context.fillStyle = settings.highContrast ? "#ffe600" : "#8b6f42";
+            context.beginPath();
+            context.ellipse(-26, 6, 8, 13, -0.5, 0, Math.PI * 2);
+            context.fill();
+            context.restore();
         }
 
         function drawTarget() {
@@ -936,6 +1030,15 @@
             };
         }
 
+        function drawEndScore() {
+            context.fillStyle = settings.highContrast ? "rgba(0, 0, 0, 0.82)" : "rgba(29, 36, 31, 0.72)";
+            context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+            context.fillStyle = settings.highContrast ? "#ffe600" : "#ffffff";
+            context.font = "900 " + (settings.largeText ? 66 : 54) + "px system-ui, sans-serif";
+            context.textAlign = "center";
+            context.fillText("Score " + game.score + " / " + game.animals.length, WORLD_WIDTH / 2, WORLD_HEIGHT / 2 + 18);
+        }
+
         return {
             destroy: destroy,
             reset: reset,
@@ -943,7 +1046,9 @@
                 return {
                     rescued: game.rescued,
                     animals: game.animals.length,
-                    obstacles: game.obstacles.length
+                    obstacles: game.obstacles.length,
+                    ended: game.ended,
+                    badPersonAway: game.badPerson.hiddenTime > 0
                 };
             }
         };
@@ -953,10 +1058,13 @@
         var game = {
             zoo: { x: 38, y: 38, w: 148, h: 106 },
             player: { x: 125, y: 205, targetX: 125, targetY: 205, r: 17, speed: 220, carrying: null },
+            badPerson: createBadPerson(),
             animals: createAnimals(),
             obstacles: [],
             rescued: 0,
-            message: "Catch loose animals and return them to the zoo."
+            rescueSequence: 0,
+            score: 0,
+            ended: false
         };
 
         var count = settings.reducedMotion ? 12 : 16;
@@ -968,6 +1076,23 @@
         }
 
         return game;
+    }
+
+    function createBadPerson() {
+        var spawn = BAD_SPAWN_POINTS[0];
+        var patrol = BAD_PATROL_POINTS[0];
+        return {
+            x: spawn.x,
+            y: spawn.y,
+            targetX: spawn.x,
+            targetY: spawn.y,
+            patrolX: patrol.x,
+            patrolY: patrol.y,
+            r: 18,
+            speed: BAD_PERSON_SPEED,
+            angle: Math.PI,
+            hiddenTime: 0
+        };
     }
 
     function loadAnimalSprites() {
@@ -998,7 +1123,8 @@
             wanderTime: 0.5 + Math.random(),
             spriteOffset: Math.floor(Math.random() * 8),
             carried: false,
-            rescued: false
+            rescued: false,
+            rescueOrder: 0
         };
     }
 
@@ -1070,33 +1196,11 @@
     }
 
     app.addEventListener("click", function (event) {
-        var routeLink = event.target.closest("[data-route]");
         var action = event.target.closest("[data-action]");
-
-        if (routeLink) {
-            event.preventDefault();
-            window.location.hash = routeLink.dataset.route;
-            return;
-        }
 
         if (action && action.dataset.action === "restart-game" && gameInstance) {
             gameInstance.reset();
         }
-    });
-
-    app.addEventListener("change", function (event) {
-        var target = event.target;
-
-        if (target.matches("[data-setting]")) {
-            state.settings[target.dataset.setting] = target.checked;
-            saveSettings();
-            render();
-        }
-    });
-
-    window.addEventListener("hashchange", function () {
-        state.route = getRoute();
-        render();
     });
 
     window.GameApp = {
