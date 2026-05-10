@@ -8,8 +8,11 @@
     var MAX_OBSTACLES = 28;
     var SPRITE_SIZE = 32;
     var GRASS_TILE_SIZE = 32;
-    var BADGE_OFFSET_Y = 38;
     var FAST_BADGE_LIMIT_SECONDS = 60;
+    var END_FADE_MS = 1700;
+    var END_PANEL_DELAY_MS = 520;
+    var END_PANEL_FADE_MS = 640;
+    var FIREWORK_DURATION_MS = 1800;
     var BAD_PERSON_SPEED = 320;
     var BAD_PERSON_HIDE_MIN = 4;
     var BAD_PERSON_HIDE_MAX = 12;
@@ -940,6 +943,8 @@
             game.ended = true;
             game.score = game.rescued;
             game.earnedBadges = awardBadges();
+            game.endStartedAt = performance.now();
+            game.fireworks = settings.reducedMotion ? [] : createFireworks();
         }
 
         function awardBadges() {
@@ -960,6 +965,36 @@
             }
 
             return earnedBadges;
+        }
+
+        function createFireworks() {
+            var colors = settings.highContrast ? ["#ffe600", "#ffffff", "#00e5ff", "#ff5fb7"] : ["#f0b13d", "#ffffff", "#2d65b3", "#cc4b8c", "#67bd5f"];
+            var bursts = [
+                { x: WORLD_WIDTH * 0.28, y: WORLD_HEIGHT * 0.28, delay: 0 },
+                { x: WORLD_WIDTH * 0.72, y: WORLD_HEIGHT * 0.24, delay: 180 },
+                { x: WORLD_WIDTH * 0.5, y: WORLD_HEIGHT * 0.2, delay: 360 },
+                { x: WORLD_WIDTH * 0.22, y: WORLD_HEIGHT * 0.58, delay: 540 },
+                { x: WORLD_WIDTH * 0.78, y: WORLD_HEIGHT * 0.57, delay: 720 }
+            ];
+            var fireworks = [];
+
+            bursts.forEach(function (burst, burstIndex) {
+                var particleCount = 24;
+                for (var index = 0; index < particleCount; index += 1) {
+                    fireworks.push({
+                        x: burst.x,
+                        y: burst.y,
+                        angle: (Math.PI * 2 * index) / particleCount + Math.random() * 0.12,
+                        speed: 76 + Math.random() * 92,
+                        delay: burst.delay + Math.random() * 80,
+                        duration: FIREWORK_DURATION_MS - burst.delay * 0.42,
+                        color: colors[(index + burstIndex) % colors.length],
+                        size: 3 + Math.floor(Math.random() * 3)
+                    });
+                }
+            });
+
+            return fireworks;
         }
 
         function growObstacles(delta) {
@@ -1033,7 +1068,7 @@
             if (!game.ended) {
                 drawTarget();
             } else {
-                drawEndScore();
+                drawEndSequence();
             }
         }
 
@@ -1423,69 +1458,198 @@
             };
         }
 
-        function drawEndScore() {
-            context.fillStyle = settings.highContrast ? "rgba(0, 0, 0, 0.82)" : "rgba(29, 36, 31, 0.72)";
+        function drawEndSequence() {
+            var age = game.endStartedAt ? performance.now() - game.endStartedAt : END_FADE_MS;
+            var overlayTarget = settings.highContrast ? 0.9 : 0.76;
+            var overlayAlpha = settings.reducedMotion ? overlayTarget : Math.min(overlayTarget, overlayTarget * (age / END_FADE_MS));
+            var panelAlpha = settings.reducedMotion ? 1 : clamp((age - END_PANEL_DELAY_MS) / END_PANEL_FADE_MS, 0, 1);
+
+            context.fillStyle = settings.highContrast ? "rgba(0, 0, 0, " + overlayAlpha + ")" : "rgba(29, 36, 31, " + overlayAlpha + ")";
             context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-            context.fillStyle = settings.highContrast ? "#ffe600" : "#ffffff";
-            context.font = "900 " + (settings.largeText ? 66 : 54) + "px system-ui, sans-serif";
-            context.textAlign = "center";
-            context.fillText("Score " + game.score + " / " + game.animals.length, WORLD_WIDTH / 2, WORLD_HEIGHT / 2 + 18);
-            drawBadgeAwards(WORLD_WIDTH / 2, WORLD_HEIGHT / 2 + 18 + BADGE_OFFSET_Y);
+            drawFireworks(age);
+
+            if (panelAlpha > 0) {
+                drawEndPanel(panelAlpha);
+            }
         }
 
-        function drawBadgeAwards(centerX, startY) {
-            var badgeIds = game.earnedBadges;
-            if (!badgeIds.length) {
-                context.font = "800 " + (settings.largeText ? 22 : 18) + "px system-ui, sans-serif";
-                context.fillStyle = settings.highContrast ? "#ffffff" : "#e5efd7";
-                context.fillText("No badge this run", centerX, startY + 26);
+        function drawFireworks(age) {
+            if (!game.fireworks.length) {
                 return;
             }
 
-            var badgeWidth = 176;
-            var badgeHeight = 82;
-            var gap = 14;
-            var rowWidth = badgeIds.length * badgeWidth + (badgeIds.length - 1) * gap;
-            var startX = centerX - rowWidth / 2;
+            context.save();
+            game.fireworks.forEach(function (particle) {
+                var localAge = age - particle.delay;
+                if (localAge < 0 || localAge > particle.duration) {
+                    return;
+                }
+
+                var progress = localAge / particle.duration;
+                var eased = 1 - Math.pow(1 - progress, 2);
+                var x = particle.x + Math.cos(particle.angle) * particle.speed * eased;
+                var y = particle.y + Math.sin(particle.angle) * particle.speed * eased + 68 * progress * progress;
+                var tailX = particle.x + Math.cos(particle.angle) * particle.speed * Math.max(0, eased - 0.16);
+                var tailY = particle.y + Math.sin(particle.angle) * particle.speed * Math.max(0, eased - 0.16) + 68 * Math.max(0, progress - 0.08) * Math.max(0, progress - 0.08);
+                var alpha = 1 - progress;
+
+                context.globalAlpha = alpha;
+                context.strokeStyle = particle.color;
+                context.lineWidth = Math.max(2, particle.size - 1);
+                context.beginPath();
+                context.moveTo(tailX, tailY);
+                context.lineTo(x, y);
+                context.stroke();
+                context.fillStyle = particle.color;
+                context.fillRect(Math.round(x), Math.round(y), particle.size, particle.size);
+            });
+            context.restore();
+        }
+
+        function drawEndPanel(alpha) {
+            var panel = {
+                x: settings.largeText ? 96 : 140,
+                y: settings.largeText ? 50 : 64,
+                w: settings.largeText ? 768 : 680,
+                h: settings.largeText ? 520 : 492
+            };
+            var contentX = panel.x + 34;
+            var contentW = panel.w - 68;
+            var statGap = 12;
+            var statY = panel.y + (settings.largeText ? 152 : 136);
+            var statH = settings.largeText ? 74 : 64;
+            var statW = (contentW - statGap * 3) / 4;
+            var badgeY = statY + statH + (settings.largeText ? 42 : 40);
+            var rowH = settings.largeText ? 56 : 52;
+            var rowGap = 9;
+            var badgeIds = game.earnedBadges;
+
+            context.save();
+            context.globalAlpha = alpha;
+            context.fillStyle = settings.highContrast ? "#000000" : "#ffffff";
+            context.fillRect(panel.x, panel.y, panel.w, panel.h);
+            context.strokeStyle = settings.highContrast ? "#ffe600" : "#f7e3a4";
+            context.lineWidth = 6;
+            context.strokeRect(panel.x + 3, panel.y + 3, panel.w - 6, panel.h - 6);
+            context.strokeStyle = settings.highContrast ? "#ffffff" : "#116f63";
+            context.lineWidth = 2;
+            context.strokeRect(panel.x + 14, panel.y + 14, panel.w - 28, panel.h - 28);
+
+            context.beginPath();
+            context.rect(panel.x + 20, panel.y + 20, panel.w - 40, panel.h - 40);
+            context.clip();
+
+            drawTextFit("Zoo saved!", WORLD_WIDTH / 2, panel.y + (settings.largeText ? 58 : 54), contentW, settings.largeText ? 45 : 40, 28, "900", settings.highContrast ? "#ffe600" : "#116f63", "center");
+            drawTextFit("Score " + game.score + " / " + game.animals.length, WORLD_WIDTH / 2, panel.y + (settings.largeText ? 105 : 98), contentW, settings.largeText ? 34 : 30, 22, "900", settings.highContrast ? "#ffffff" : "#1d241f", "center");
+
+            drawStatCell("Time", formatTime(game.elapsedTime), contentX, statY, statW, statH);
+            drawStatCell("Rescued", game.rescued + " of " + game.animals.length, contentX + (statW + statGap), statY, statW, statH);
+            drawStatCell("Thief grabs", String(game.animalsStolen), contentX + (statW + statGap) * 2, statY, statW, statH);
+            drawStatCell("Obstacles", game.touchedObstacle ? "Touched" : "Clean", contentX + (statW + statGap) * 3, statY, statW, statH);
+
+            drawTextFit("Badges earned: " + badgeIds.length, contentX, badgeY - 16, contentW, settings.largeText ? 22 : 19, 15, "900", settings.highContrast ? "#ffe600" : "#1d241f", "left");
+
+            if (!badgeIds.length) {
+                drawTextFit("No badge this run", contentX, badgeY + 28, contentW, settings.largeText ? 23 : 20, 15, "800", settings.highContrast ? "#ffffff" : "#59635d", "left");
+                context.restore();
+                return;
+            }
 
             badgeIds.forEach(function (badgeId, index) {
                 var badge = BADGE_BY_ID[badgeId];
                 if (!badge) {
                     return;
                 }
-                drawBadgeCard(badge, startX + index * (badgeWidth + gap), startY, badgeWidth, badgeHeight);
+                drawBadgeRow(badge, contentX, badgeY + index * (rowH + rowGap), contentW, rowH);
             });
+
+            context.restore();
         }
 
-        function drawBadgeCard(badge, x, y, width, height) {
+        function drawStatCell(label, value, x, y, width, height) {
+            context.save();
+            context.beginPath();
+            context.rect(x, y, width, height);
+            context.clip();
+            context.fillStyle = settings.highContrast ? "#101010" : "#e5efd7";
+            context.fillRect(x, y, width, height);
+            context.strokeStyle = settings.highContrast ? "#ffffff" : "#bdc9b5";
+            context.lineWidth = 2;
+            context.strokeRect(x + 1, y + 1, width - 2, height - 2);
+            drawTextFit(label, x + 10, y + 23, width - 20, settings.largeText ? 15 : 13, 10, "900", settings.highContrast ? "#ffe600" : "#59635d", "left");
+            drawTextFit(value, x + 10, y + height - 16, width - 20, settings.largeText ? 24 : 21, 14, "900", settings.highContrast ? "#ffffff" : "#1d241f", "left");
+            context.restore();
+        }
+
+        function drawBadgeRow(badge, x, y, width, height) {
             var fill = settings.highContrast ? "#000000" : badge.fill;
             var accent = settings.highContrast ? "#ffe600" : badge.accent;
             var ink = settings.highContrast ? "#ffffff" : badge.ink;
             var muted = settings.highContrast ? "#ffffff" : badge.accent;
+            var iconX = x + 29;
+            var iconY = y + height / 2;
+            var textX = x + 64;
+            var textW = width - 82;
+
+            context.save();
+            context.beginPath();
+            context.rect(x, y, width, height);
+            context.clip();
 
             context.fillStyle = fill;
             context.fillRect(x, y, width, height);
             context.strokeStyle = accent;
-            context.lineWidth = 4;
-            context.strokeRect(x + 2, y + 2, width - 4, height - 4);
+            context.lineWidth = 3;
+            context.strokeRect(x + 1.5, y + 1.5, width - 3, height - 3);
 
             context.fillStyle = accent;
             context.beginPath();
-            context.arc(x + 36, y + 40, 22, 0, Math.PI * 2);
+            context.arc(iconX, iconY, 18, 0, Math.PI * 2);
             context.fill();
+            drawTextFit(badge.name.charAt(0), iconX, iconY + 8, 28, 24, 15, "900", fill, "center");
+            drawTextFit(badge.name, textX, y + 23, textW, settings.largeText ? 22 : 20, 14, "900", ink, "left");
+            drawTextFit(badge.power, textX, y + height - 12, textW, settings.largeText ? 17 : 15, 11, "800", muted, "left");
 
-            context.fillStyle = fill;
-            context.font = "900 24px system-ui, sans-serif";
-            context.textAlign = "center";
-            context.fillText(badge.name.charAt(0), x + 36, y + 48);
+            context.restore();
+        }
 
-            context.textAlign = "left";
-            context.fillStyle = ink;
-            context.font = "900 20px system-ui, sans-serif";
-            context.fillText(badge.name, x + 68, y + 34);
-            context.fillStyle = muted;
-            context.font = "800 15px system-ui, sans-serif";
-            context.fillText(badge.power, x + 68, y + 58);
+        function drawTextFit(text, x, y, maxWidth, maxSize, minSize, weight, color, align) {
+            var size = maxSize;
+            var output = String(text);
+
+            context.textAlign = align || "left";
+            context.textBaseline = "alphabetic";
+            context.fillStyle = color;
+            context.font = weight + " " + size + "px system-ui, sans-serif";
+
+            while (size > minSize && context.measureText(output).width > maxWidth) {
+                size -= 1;
+                context.font = weight + " " + size + "px system-ui, sans-serif";
+            }
+
+            if (context.measureText(output).width > maxWidth) {
+                output = truncateText(output, maxWidth);
+            }
+
+            context.fillText(output, x, y);
+        }
+
+        function truncateText(text, maxWidth) {
+            var output = text;
+            var suffix = "...";
+
+            while (output.length > 1 && context.measureText(output + suffix).width > maxWidth) {
+                output = output.slice(0, -1);
+            }
+
+            return output.length > 1 ? output + suffix : output;
+        }
+
+        function formatTime(seconds) {
+            var totalSeconds = Math.max(0, Math.round(seconds));
+            var minutes = Math.floor(totalSeconds / 60);
+            var remainder = totalSeconds % 60;
+            return minutes + ":" + (remainder < 10 ? "0" : "") + remainder;
         }
 
         return {
@@ -1528,6 +1692,8 @@
             touchedObstacle: false,
             animalsStolen: 0,
             earnedBadges: [],
+            endStartedAt: 0,
+            fireworks: [],
             unlockedBadges: badgeIds,
             activePowers: activePowers
         };
