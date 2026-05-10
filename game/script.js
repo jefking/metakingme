@@ -19,6 +19,18 @@
     var BAD_PERSON_EDGE_OFFSET = 64;
     var BAD_PERSON_SAFE_DISTANCE = 220;
     var BAD_PERSON_ZOO_DISTANCE = 190;
+    var COIN_DROP_INTERVAL = 10;
+    var COINS_PER_DROP = 3;
+    var WOLF_COUNT = 3;
+    var WOLF_SPEED = 238;
+    var WOLF_EDGE_OFFSET = 58;
+    var WOLF_SAFE_DISTANCE = 180;
+    var KNIFE_REACH = 24;
+    var SPEAR_REACH = 86;
+    var SHOP_ITEMS = {
+        knife: { id: "knife", name: "Knife", cost: 3 },
+        spear: { id: "spear", name: "Spear", cost: 1 }
+    };
     var BAD_PERSON_SPRITES = {
         front: [
             "................",
@@ -377,6 +389,22 @@
         return [
             '<section class="game-view" aria-label="Zoo Rescue game stage" tabindex="-1" data-stage>',
             '  <canvas class="game-canvas" width="' + WORLD_WIDTH + '" height="' + WORLD_HEIGHT + '" data-game-canvas aria-label="Mouse controlled zoo rescue game"></canvas>',
+            '  <aside class="shop-panel" data-shop aria-label="Shop">',
+            '    <div class="shop-head">',
+            '      <strong>Shop</strong>',
+            '      <span data-coin-count>0 coins</span>',
+            '    </div>',
+            '    <button class="shop-item" type="button" data-shop-buy="knife">',
+            '      <span>Knife</span>',
+            '      <strong>3 coins</strong>',
+            '      <em data-knife-status>Not owned</em>',
+            '    </button>',
+            '    <button class="shop-item" type="button" data-shop-buy="spear">',
+            '      <span>Spear</span>',
+            '      <strong>1 coin</strong>',
+            '      <em data-spear-status>0 owned</em>',
+            '    </button>',
+            "  </aside>",
             "  </section>",
         ].join("");
     }
@@ -398,6 +426,8 @@
 
     function createZooRescueGame(canvas, settings) {
         var context = canvas.getContext("2d");
+        var stage = canvas.closest("[data-stage]");
+        var shop = stage ? stage.querySelector("[data-shop]") : null;
         var dpr = window.devicePixelRatio || 1;
         var running = true;
         var animationFrame = 0;
@@ -407,8 +437,12 @@
         var game = createInitialGame(settings, unlockedBadges);
 
         resizeCanvas();
+        renderShop();
         canvas.addEventListener("pointermove", setTarget);
         canvas.addEventListener("pointerdown", setTarget);
+        if (shop) {
+            shop.addEventListener("click", onShopClick);
+        }
         window.addEventListener("resize", resizeCanvas);
         draw();
         animationFrame = window.requestAnimationFrame(loop);
@@ -418,6 +452,7 @@
             game = createInitialGame(settings, unlockedBadges);
             lastTime = performance.now();
             nextGrowth = 4;
+            renderShop();
         }
 
         function destroy() {
@@ -425,6 +460,9 @@
             window.cancelAnimationFrame(animationFrame);
             canvas.removeEventListener("pointermove", setTarget);
             canvas.removeEventListener("pointerdown", setTarget);
+            if (shop) {
+                shop.removeEventListener("click", onShopClick);
+            }
             window.removeEventListener("resize", resizeCanvas);
         }
 
@@ -450,6 +488,62 @@
             };
         }
 
+        function onShopClick(event) {
+            var button = event.target.closest("[data-shop-buy]");
+            if (!button || !shop || !shop.contains(button)) {
+                return;
+            }
+
+            buyShopItem(button.dataset.shopBuy);
+        }
+
+        function buyShopItem(itemId) {
+            var item = SHOP_ITEMS[itemId];
+            if (!item || game.coins < item.cost || game.ended) {
+                return;
+            }
+
+            if (itemId === "knife" && game.inventory.knife) {
+                return;
+            }
+
+            game.coins -= item.cost;
+            if (itemId === "knife") {
+                game.inventory.knife = true;
+            } else if (itemId === "spear") {
+                game.inventory.spear += 1;
+            }
+            renderShop();
+        }
+
+        function renderShop() {
+            if (!shop || !game) {
+                return;
+            }
+
+            var coinCount = shop.querySelector("[data-coin-count]");
+            var knifeStatus = shop.querySelector("[data-knife-status]");
+            var spearStatus = shop.querySelector("[data-spear-status]");
+            var knifeButton = shop.querySelector('[data-shop-buy="knife"]');
+            var spearButton = shop.querySelector('[data-shop-buy="spear"]');
+
+            if (coinCount) {
+                coinCount.textContent = game.coins + (game.coins === 1 ? " coin" : " coins");
+            }
+            if (knifeStatus) {
+                knifeStatus.textContent = game.inventory.knife ? "Owned" : "Not owned";
+            }
+            if (spearStatus) {
+                spearStatus.textContent = game.inventory.spear + " owned";
+            }
+            if (knifeButton) {
+                knifeButton.disabled = game.ended || game.inventory.knife || game.coins < SHOP_ITEMS.knife.cost;
+            }
+            if (spearButton) {
+                spearButton.disabled = game.ended || game.coins < SHOP_ITEMS.spear.cost;
+            }
+        }
+
         function loop(now) {
             if (!running) {
                 return;
@@ -472,8 +566,13 @@
             movePlayer(delta * speedFactor);
             moveAnimals(delta * speedFactor);
             moveBadPerson(delta, settings.reducedMotion ? 0.7 : 1);
+            moveWolves(delta, settings.reducedMotion ? 0.72 : 1);
             updateCarriedAnimal();
             updateReleasedAnimal();
+            updateWolfCarriedAnimals();
+            checkWeaponHits();
+            updateCoinDrops(delta);
+            collectCoins();
             checkCatchAndDrop();
             if (game.ended) {
                 return;
@@ -574,6 +673,54 @@
             badPerson.angle = Math.atan2(dy, dx);
             badPerson.x += (dx / targetDistance) * step;
             badPerson.y += (dy / targetDistance) * step;
+        }
+
+        function updateCoinDrops(delta) {
+            game.coinDropTimer -= delta;
+            if (game.coinDropTimer > 0 || !isBadPersonVisible()) {
+                return;
+            }
+
+            dropBadPersonCoins();
+            game.coinDropTimer += COIN_DROP_INTERVAL;
+            if (game.coinDropTimer <= 0) {
+                game.coinDropTimer = COIN_DROP_INTERVAL;
+            }
+        }
+
+        function isBadPersonVisible() {
+            return game.badPerson && game.badPerson.hiddenTime <= 0 && !game.ended;
+        }
+
+        function dropBadPersonCoins() {
+            var badPerson = game.badPerson;
+            for (var index = 0; index < COINS_PER_DROP; index += 1) {
+                var angle = (Math.PI * 2 * index) / COINS_PER_DROP + Math.random() * 0.55;
+                var spread = 20 + Math.random() * 18;
+                game.coinPickups.push({
+                    x: clamp(badPerson.x + Math.cos(angle) * spread, 12, WORLD_WIDTH - 12),
+                    y: clamp(badPerson.y + Math.sin(angle) * spread, 12, WORLD_HEIGHT - 12),
+                    r: 8,
+                    value: 1,
+                    bob: Math.random() * Math.PI * 2
+                });
+            }
+        }
+
+        function collectCoins() {
+            var collected = false;
+            for (var index = game.coinPickups.length - 1; index >= 0; index -= 1) {
+                var coin = game.coinPickups[index];
+                if (distance(game.player, coin) <= game.player.r + coin.r + 6) {
+                    game.coins += coin.value;
+                    game.coinPickups.splice(index, 1);
+                    collected = true;
+                }
+            }
+
+            if (collected) {
+                renderShop();
+            }
         }
 
         function spawnBadPerson() {
@@ -758,6 +905,259 @@
             animal.x = badPerson.x - Math.cos(badPerson.angle) * 26;
             animal.y = badPerson.y - Math.sin(badPerson.angle) * 26;
             animal.angle = badPerson.angle;
+        }
+
+        function moveWolves(delta, speedFactor) {
+            game.wolves.forEach(function (wolf) {
+                moveWolf(wolf, delta, speedFactor);
+            });
+        }
+
+        function moveWolf(wolf, delta, speedFactor) {
+            if (wolf.hiddenTime > 0) {
+                wolf.hiddenTime = Math.max(0, wolf.hiddenTime - delta);
+                if (wolf.hiddenTime === 0) {
+                    spawnWolf(wolf);
+                }
+                return;
+            }
+
+            if (wolf.mode === "patrol" && game.rescued > 0) {
+                planWolfStealRun(wolf);
+            }
+
+            if (!wolf.route.length || wolf.routeIndex >= wolf.route.length) {
+                sendWolfAway(wolf);
+                return;
+            }
+
+            var target = wolf.route[wolf.routeIndex];
+            moveWolfToward(wolf, target, delta * speedFactor);
+
+            if (distance(wolf, target) <= (target.radius || 16)) {
+                advanceWolfRoute(wolf, target);
+            }
+        }
+
+        function moveWolfToward(wolf, target, delta) {
+            var dx = target.x - wolf.x;
+            var dy = target.y - wolf.y;
+            var targetDistance = Math.hypot(dx, dy);
+            if (targetDistance <= 1) {
+                return;
+            }
+
+            var step = Math.min(targetDistance, wolf.speed * delta);
+            wolf.angle = Math.atan2(dy, dx);
+            wolf.x += (dx / targetDistance) * step;
+            wolf.y += (dy / targetDistance) * step;
+        }
+
+        function spawnWolf(wolf) {
+            var spawn = findWolfEdgePoint();
+            wolf.x = spawn.x;
+            wolf.y = spawn.y;
+            wolf.angle = angleFromEdge(edgeDropPoint(spawn, wolf.r));
+            wolf.hiddenTime = 0;
+            wolf.releaseAnimal = null;
+            wolf.dropPoint = null;
+
+            if (game.rescued > 0) {
+                planWolfStealRun(wolf);
+            } else {
+                planWolfPatrolRoute(wolf);
+            }
+        }
+
+        function planWolfPatrolRoute(wolf) {
+            var exit = findWolfEdgePoint();
+            setWolfRoute(wolf, "patrol", [
+                findSneakyPoint(wolf),
+                {
+                    x: exit.x,
+                    y: exit.y,
+                    radius: 18,
+                    action: "leave"
+                }
+            ]);
+        }
+
+        function planWolfStealRun(wolf) {
+            var zoo = game.zoo;
+            var approach = findZooApproachPoint();
+            setWolfRoute(wolf, "steal", [
+                findSneakyPoint(wolf),
+                approach,
+                {
+                    x: zoo.x + zoo.w / 2,
+                    y: zoo.y + zoo.h / 2,
+                    radius: 18,
+                    action: "steal"
+                }
+            ]);
+        }
+
+        function setWolfRoute(wolf, mode, route) {
+            wolf.mode = mode;
+            wolf.route = route;
+            wolf.routeIndex = 0;
+        }
+
+        function advanceWolfRoute(wolf, target) {
+            if (target.action === "steal") {
+                wolfStealAnimal(wolf);
+                return;
+            }
+
+            if (target.action === "drop") {
+                dropWolfAnimal(wolf);
+                sendWolfAway(wolf);
+                return;
+            }
+
+            if (target.action === "leave") {
+                sendWolfAway(wolf);
+                return;
+            }
+
+            wolf.routeIndex += 1;
+            if (wolf.routeIndex >= wolf.route.length) {
+                sendWolfAway(wolf);
+            }
+        }
+
+        function wolfStealAnimal(wolf) {
+            var animal = findRescuedAnimal();
+            if (!animal) {
+                planWolfPatrolRoute(wolf);
+                return;
+            }
+
+            var exit = findWolfEdgePoint();
+            animal.rescued = false;
+            animal.carried = true;
+            animal.rescueOrder = 0;
+            game.rescued = Math.max(0, game.rescued - 1);
+            game.animalsStolen += 1;
+            layoutRescuedAnimals();
+
+            wolf.releaseAnimal = animal;
+            wolf.dropPoint = edgeDropPoint(exit, animal.r);
+            setWolfRoute(wolf, "exit", [
+                findSneakyPoint(wolf),
+                {
+                    x: exit.x,
+                    y: exit.y,
+                    radius: 16,
+                    action: "drop"
+                }
+            ]);
+        }
+
+        function updateWolfCarriedAnimals() {
+            game.wolves.forEach(function (wolf) {
+                var animal = wolf.releaseAnimal;
+                if (!animal) {
+                    return;
+                }
+                animal.x = wolf.x - Math.cos(wolf.angle) * 24;
+                animal.y = wolf.y - Math.sin(wolf.angle) * 24;
+                animal.angle = wolf.angle;
+            });
+        }
+
+        function checkWeaponHits() {
+            game.wolves.forEach(function (wolf) {
+                if (wolf.hiddenTime > 0) {
+                    return;
+                }
+
+                var hitDistance = distance(game.player, wolf);
+                if (game.inventory.knife && hitDistance <= game.player.r + wolf.r + KNIFE_REACH) {
+                    defeatWolf(wolf);
+                    return;
+                }
+
+                if (game.inventory.spear > 0 && hitDistance <= game.player.r + wolf.r + SPEAR_REACH) {
+                    game.inventory.spear -= 1;
+                    renderShop();
+                    defeatWolf(wolf);
+                }
+            });
+        }
+
+        function defeatWolf(wolf) {
+            recoverWolfAnimal(wolf);
+            game.wolvesDefeated += 1;
+            wolf.hiddenTime = randomWolfDelay(wolf.index);
+            wolf.mode = "hidden";
+            wolf.route = [];
+            wolf.routeIndex = 0;
+            wolf.releaseAnimal = null;
+            wolf.dropPoint = null;
+            wolf.x = -WOLF_EDGE_OFFSET;
+            wolf.y = -WOLF_EDGE_OFFSET;
+        }
+
+        function recoverWolfAnimal(wolf) {
+            var animal = wolf.releaseAnimal;
+            if (!animal) {
+                return;
+            }
+
+            animal.rescued = true;
+            animal.carried = false;
+            game.rescueSequence += 1;
+            animal.rescueOrder = game.rescueSequence;
+            game.rescued += 1;
+            layoutRescuedAnimals();
+        }
+
+        function dropWolfAnimal(wolf) {
+            var animal = wolf.releaseAnimal;
+            if (!animal) {
+                return;
+            }
+
+            var spot = wolf.dropPoint || edgeDropPoint(wolf, animal.r);
+            animal.carried = false;
+            animal.rescued = false;
+            animal.rescueOrder = 0;
+            animal.x = spot.x;
+            animal.y = spot.y;
+            animal.angle = angleFromEdge(spot);
+            animal.wanderTime = 0.6 + Math.random();
+            wolf.releaseAnimal = null;
+            wolf.dropPoint = null;
+        }
+
+        function sendWolfAway(wolf) {
+            if (wolf.releaseAnimal) {
+                dropWolfAnimal(wolf);
+            }
+            wolf.hiddenTime = randomWolfDelay(wolf.index);
+            wolf.mode = "hidden";
+            wolf.route = [];
+            wolf.routeIndex = 0;
+            wolf.releaseAnimal = null;
+            wolf.dropPoint = null;
+            wolf.x = -WOLF_EDGE_OFFSET;
+            wolf.y = -WOLF_EDGE_OFFSET;
+        }
+
+        function findWolfEdgePoint() {
+            var point = findBadPersonEdgePoint(WOLF_SAFE_DISTANCE);
+            if (point.x < 0) {
+                point.x = -WOLF_EDGE_OFFSET;
+            } else if (point.x > WORLD_WIDTH) {
+                point.x = WORLD_WIDTH + WOLF_EDGE_OFFSET;
+            }
+            if (point.y < 0) {
+                point.y = -WOLF_EDGE_OFFSET;
+            } else if (point.y > WORLD_HEIGHT) {
+                point.y = WORLD_HEIGHT + WOLF_EDGE_OFFSET;
+            }
+            return point;
         }
 
         function findSneakyPoint(fromPoint) {
@@ -945,6 +1345,7 @@
             game.earnedBadges = awardBadges();
             game.endStartedAt = performance.now();
             game.fireworks = settings.reducedMotion ? [] : createFireworks();
+            renderShop();
         }
 
         function awardBadges() {
@@ -1053,6 +1454,7 @@
             game.obstacles.forEach(function (obstacle) {
                 drawObstacle(obstacle, palette);
             });
+            drawCoins();
             game.animals.forEach(function (animal) {
                 if (!animal.rescued || animal.carried) {
                     drawAnimal(animal);
@@ -1063,6 +1465,7 @@
                     drawAnimal(animal);
                 }
             });
+            drawWolves();
             drawBadPerson();
             drawPlayer(palette);
             if (!game.ended) {
@@ -1114,6 +1517,90 @@
             var scale = Math.max(1, Math.round(finalScale * (radius / obstacle.radius)));
 
             drawPixelSprite(sprite, obstacle.x, obstacle.y, scale, palette);
+        }
+
+        function drawCoins() {
+            game.coinPickups.forEach(function (coin) {
+                var y = coin.y + (settings.reducedMotion ? 0 : Math.sin(performance.now() / 220 + coin.bob) * 2);
+                context.save();
+                context.fillStyle = settings.highContrast ? "#ffe600" : "#f0b13d";
+                context.strokeStyle = settings.highContrast ? "#ffffff" : "#8b5a2b";
+                context.lineWidth = 2;
+                context.beginPath();
+                context.arc(coin.x, y, coin.r, 0, Math.PI * 2);
+                context.fill();
+                context.stroke();
+                drawTextFit("C", coin.x, y + 4, 12, 12, 10, "900", settings.highContrast ? "#000000" : "#5a3a12", "center");
+                context.restore();
+            });
+        }
+
+        function drawWolves() {
+            game.wolves.forEach(function (wolf) {
+                if (wolf.hiddenTime > 0 || game.ended) {
+                    return;
+                }
+                drawWolf(wolf);
+            });
+        }
+
+        function drawWolf(wolf) {
+            var facingLeft = Math.cos(wolf.angle) < 0;
+            context.save();
+            context.translate(Math.round(wolf.x), Math.round(wolf.y));
+            if (facingLeft) {
+                context.scale(-1, 1);
+            }
+
+            context.fillStyle = settings.highContrast ? "#ffffff" : "rgba(31, 49, 30, 0.22)";
+            context.beginPath();
+            context.ellipse(-2, 18, 24, 6, 0, 0, Math.PI * 2);
+            context.fill();
+
+            context.fillStyle = settings.highContrast ? "#000000" : "#5e6570";
+            context.strokeStyle = settings.highContrast ? "#ffffff" : "#29313a";
+            context.lineWidth = 2;
+            context.beginPath();
+            context.ellipse(-4, 0, 21, 12, 0, 0, Math.PI * 2);
+            context.fill();
+            context.stroke();
+
+            context.fillStyle = settings.highContrast ? "#000000" : "#707986";
+            context.beginPath();
+            context.moveTo(12, -8);
+            context.lineTo(30, -2);
+            context.lineTo(14, 7);
+            context.closePath();
+            context.fill();
+            context.stroke();
+
+            context.fillStyle = settings.highContrast ? "#ffe600" : "#29313a";
+            context.beginPath();
+            context.moveTo(7, -9);
+            context.lineTo(12, -22);
+            context.lineTo(17, -7);
+            context.closePath();
+            context.moveTo(19, -5);
+            context.lineTo(25, -17);
+            context.lineTo(26, -2);
+            context.closePath();
+            context.fill();
+
+            context.fillStyle = settings.highContrast ? "#ffffff" : "#444b54";
+            context.fillRect(-18, 8, 5, 14);
+            context.fillRect(-1, 9, 5, 13);
+            context.fillRect(12, 7, 5, 14);
+
+            context.strokeStyle = settings.highContrast ? "#ffe600" : "#444b54";
+            context.lineWidth = 5;
+            context.beginPath();
+            context.moveTo(-24, -3);
+            context.lineTo(-38, -12);
+            context.stroke();
+
+            context.fillStyle = settings.highContrast ? "#ffe600" : "#f0b13d";
+            context.fillRect(23, -4, 4, 4);
+            context.restore();
         }
 
         function drawAnimal(animal) {
@@ -1665,6 +2152,17 @@
                     elapsedTime: Number(game.elapsedTime.toFixed(1)),
                     touchedObstacle: game.touchedObstacle,
                     animalsStolen: game.animalsStolen,
+                    coins: game.coins,
+                    coinPickups: game.coinPickups.length,
+                    inventory: Object.assign({}, game.inventory),
+                    wolves: game.wolves.map(function (wolf) {
+                        return {
+                            hidden: wolf.hiddenTime > 0,
+                            mode: wolf.mode,
+                            carrying: Boolean(wolf.releaseAnimal)
+                        };
+                    }),
+                    wolvesDefeated: game.wolvesDefeated,
                     earnedBadges: game.earnedBadges.slice(),
                     unlockedBadges: game.unlockedBadges.slice(),
                     activePowers: Object.assign({}, game.activePowers)
@@ -1682,8 +2180,16 @@
             zoo: zoo,
             player: player,
             badPerson: createBadPerson(activePowers),
+            wolves: createWolves(activePowers),
             animals: [],
             obstacles: [],
+            coinPickups: [],
+            coins: 0,
+            coinDropTimer: COIN_DROP_INTERVAL,
+            inventory: {
+                knife: false,
+                spear: 0
+            },
             rescued: 0,
             rescueSequence: 0,
             score: 0,
@@ -1691,6 +2197,7 @@
             elapsedTime: 0,
             touchedObstacle: false,
             animalsStolen: 0,
+            wolvesDefeated: 0,
             earnedBadges: [],
             endStartedAt: 0,
             fireworks: [],
@@ -1744,8 +2251,35 @@
         };
     }
 
+    function createWolves(activePowers) {
+        var wolves = [];
+        for (var index = 0; index < WOLF_COUNT; index += 1) {
+            wolves.push({
+                index: index,
+                x: -WOLF_EDGE_OFFSET,
+                y: -WOLF_EDGE_OFFSET,
+                targetX: -WOLF_EDGE_OFFSET,
+                targetY: -WOLF_EDGE_OFFSET,
+                r: 16,
+                speed: WOLF_SPEED * activePowers.badPersonSpeedMultiplier,
+                angle: Math.PI,
+                hiddenTime: randomWolfDelay(index),
+                mode: "hidden",
+                route: [],
+                routeIndex: 0,
+                releaseAnimal: null,
+                dropPoint: null
+            });
+        }
+        return wolves;
+    }
+
     function randomBadPersonDelay() {
         return BAD_PERSON_HIDE_MIN + Math.random() * (BAD_PERSON_HIDE_MAX - BAD_PERSON_HIDE_MIN);
+    }
+
+    function randomWolfDelay(index) {
+        return 5 + index * 2.4 + Math.random() * 6;
     }
 
     function loadAnimalSprites() {
