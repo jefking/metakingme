@@ -2,11 +2,14 @@
     "use strict";
 
     var STORAGE_KEY = "standaloneGameSettings";
+    var BADGE_STORAGE_KEY = "zooRescueUnlockedBadges";
     var WORLD_WIDTH = 960;
     var WORLD_HEIGHT = 620;
     var MAX_OBSTACLES = 28;
     var SPRITE_SIZE = 32;
     var GRASS_TILE_SIZE = 32;
+    var BADGE_OFFSET_Y = 38;
+    var FAST_BADGE_LIMIT_SECONDS = 60;
     var BAD_PERSON_SPEED = 320;
     var BAD_PERSON_HIDE_MIN = 4;
     var BAD_PERSON_HIDE_MAX = 12;
@@ -246,6 +249,37 @@
         reducedMotion: false,
         largeText: false
     };
+    var BADGE_DEFINITIONS = [
+        {
+            id: "fast",
+            name: "Fast!",
+            power: "+35 keeper speed",
+            fill: "#f0b13d",
+            accent: "#fff1bd",
+            ink: "#2e2110"
+        },
+        {
+            id: "smooth",
+            name: "Smooth!",
+            power: "+12 catch reach",
+            fill: "#116f63",
+            accent: "#c9f7e2",
+            ink: "#ffffff"
+        },
+        {
+            id: "safeKeeper",
+            name: "Safe Keeper",
+            power: "Slower thief",
+            fill: "#204b8f",
+            accent: "#d8e7ff",
+            ink: "#ffffff"
+        }
+    ];
+    var BADGE_BY_ID = {};
+
+    BADGE_DEFINITIONS.forEach(function (badge) {
+        BADGE_BY_ID[badge.id] = badge;
+    });
 
     var app = document.getElementById("app");
     var gameInstance = null;
@@ -266,6 +300,46 @@
         } catch (error) {
             return Object.assign({}, defaultSettings);
         }
+    }
+
+    function loadUnlockedBadges() {
+        try {
+            var saved = JSON.parse(window.localStorage.getItem(BADGE_STORAGE_KEY));
+            return normalizeBadgeIds(Array.isArray(saved) ? saved : []);
+        } catch (error) {
+            return [];
+        }
+    }
+
+    function saveUnlockedBadges(badgeIds) {
+        try {
+            window.localStorage.setItem(BADGE_STORAGE_KEY, JSON.stringify(normalizeBadgeIds(badgeIds)));
+        } catch (error) {
+            return;
+        }
+    }
+
+    function normalizeBadgeIds(badgeIds) {
+        var normalized = [];
+        (badgeIds || []).forEach(function (badgeId) {
+            if (BADGE_BY_ID[badgeId] && normalized.indexOf(badgeId) === -1) {
+                normalized.push(badgeId);
+            }
+        });
+        return normalized;
+    }
+
+    function mergeBadgeIds(existingIds, newIds) {
+        return normalizeBadgeIds((existingIds || []).concat(newIds || []));
+    }
+
+    function createBadgePowers(badgeIds) {
+        var normalized = normalizeBadgeIds(badgeIds);
+        return {
+            playerSpeedBonus: normalized.indexOf("fast") === -1 ? 0 : 35,
+            catchRadiusBonus: normalized.indexOf("smooth") === -1 ? 0 : 12,
+            badPersonSpeedMultiplier: normalized.indexOf("safeKeeper") === -1 ? 1 : 0.78
+        };
     }
 
     function setDocumentFlags() {
@@ -326,7 +400,8 @@
         var animationFrame = 0;
         var lastTime = performance.now();
         var nextGrowth = 4;
-        var game = createInitialGame(settings);
+        var unlockedBadges = loadUnlockedBadges();
+        var game = createInitialGame(settings, unlockedBadges);
 
         resizeCanvas();
         canvas.addEventListener("pointermove", setTarget);
@@ -336,7 +411,8 @@
         animationFrame = window.requestAnimationFrame(loop);
 
         function reset() {
-            game = createInitialGame(settings);
+            unlockedBadges = loadUnlockedBadges();
+            game = createInitialGame(settings, unlockedBadges);
             lastTime = performance.now();
             nextGrowth = 4;
         }
@@ -388,6 +464,7 @@
                 return;
             }
 
+            game.elapsedTime += delta;
             var speedFactor = settings.reducedMotion ? 0.55 : 1;
             movePlayer(delta * speedFactor);
             moveAnimals(delta * speedFactor);
@@ -607,6 +684,7 @@
             animal.carried = true;
             animal.rescueOrder = 0;
             game.rescued = Math.max(0, game.rescued - 1);
+            game.animalsStolen += 1;
             layoutRescuedAnimals();
             badPerson.releaseAnimal = animal;
             badPerson.dropPoint = edgeDropPoint(exit, animal.r);
@@ -801,6 +879,11 @@
                 var ox = entity.x - obstacle.x;
                 var oy = entity.y - obstacle.y;
                 var overlapDistance = Math.hypot(ox, oy);
+                if (overlapDistance < radius) {
+                    if (entity === game.player) {
+                        game.touchedObstacle = true;
+                    }
+                }
                 if (overlapDistance > 0 && overlapDistance < radius) {
                     var push = radius - overlapDistance;
                     entity.x += (ox / overlapDistance) * push;
@@ -826,7 +909,7 @@
 
             if (!player.carrying) {
                 game.animals.some(function (animal) {
-                    if (!animal.rescued && !animal.carried && distance(player, animal) < player.r + animal.r + 4) {
+                    if (!animal.rescued && !animal.carried && distance(player, animal) < player.r + animal.r + 4 + player.catchBonus) {
                         animal.carried = true;
                         player.carrying = animal;
                         return true;
@@ -856,6 +939,27 @@
             }
             game.ended = true;
             game.score = game.rescued;
+            game.earnedBadges = awardBadges();
+        }
+
+        function awardBadges() {
+            var earnedBadges = [];
+            if (game.elapsedTime < FAST_BADGE_LIMIT_SECONDS) {
+                earnedBadges.push("fast");
+            }
+            if (!game.touchedObstacle) {
+                earnedBadges.push("smooth");
+            }
+            if (game.animalsStolen === 0) {
+                earnedBadges.push("safeKeeper");
+            }
+
+            if (earnedBadges.length) {
+                game.unlockedBadges = mergeBadgeIds(game.unlockedBadges, earnedBadges);
+                saveUnlockedBadges(game.unlockedBadges);
+            }
+
+            return earnedBadges;
         }
 
         function growObstacles(delta) {
@@ -1326,6 +1430,62 @@
             context.font = "900 " + (settings.largeText ? 66 : 54) + "px system-ui, sans-serif";
             context.textAlign = "center";
             context.fillText("Score " + game.score + " / " + game.animals.length, WORLD_WIDTH / 2, WORLD_HEIGHT / 2 + 18);
+            drawBadgeAwards(WORLD_WIDTH / 2, WORLD_HEIGHT / 2 + 18 + BADGE_OFFSET_Y);
+        }
+
+        function drawBadgeAwards(centerX, startY) {
+            var badgeIds = game.earnedBadges;
+            if (!badgeIds.length) {
+                context.font = "800 " + (settings.largeText ? 22 : 18) + "px system-ui, sans-serif";
+                context.fillStyle = settings.highContrast ? "#ffffff" : "#e5efd7";
+                context.fillText("No badge this run", centerX, startY + 26);
+                return;
+            }
+
+            var badgeWidth = 176;
+            var badgeHeight = 82;
+            var gap = 14;
+            var rowWidth = badgeIds.length * badgeWidth + (badgeIds.length - 1) * gap;
+            var startX = centerX - rowWidth / 2;
+
+            badgeIds.forEach(function (badgeId, index) {
+                var badge = BADGE_BY_ID[badgeId];
+                if (!badge) {
+                    return;
+                }
+                drawBadgeCard(badge, startX + index * (badgeWidth + gap), startY, badgeWidth, badgeHeight);
+            });
+        }
+
+        function drawBadgeCard(badge, x, y, width, height) {
+            var fill = settings.highContrast ? "#000000" : badge.fill;
+            var accent = settings.highContrast ? "#ffe600" : badge.accent;
+            var ink = settings.highContrast ? "#ffffff" : badge.ink;
+            var muted = settings.highContrast ? "#ffffff" : badge.accent;
+
+            context.fillStyle = fill;
+            context.fillRect(x, y, width, height);
+            context.strokeStyle = accent;
+            context.lineWidth = 4;
+            context.strokeRect(x + 2, y + 2, width - 4, height - 4);
+
+            context.fillStyle = accent;
+            context.beginPath();
+            context.arc(x + 36, y + 40, 22, 0, Math.PI * 2);
+            context.fill();
+
+            context.fillStyle = fill;
+            context.font = "900 24px system-ui, sans-serif";
+            context.textAlign = "center";
+            context.fillText(badge.name.charAt(0), x + 36, y + 48);
+
+            context.textAlign = "left";
+            context.fillStyle = ink;
+            context.font = "900 20px system-ui, sans-serif";
+            context.fillText(badge.name, x + 68, y + 34);
+            context.fillStyle = muted;
+            context.font = "800 15px system-ui, sans-serif";
+            context.fillText(badge.power, x + 68, y + 58);
         }
 
         return {
@@ -1337,25 +1497,39 @@
                     animals: game.animals.length,
                     obstacles: game.obstacles.length,
                     ended: game.ended,
-                    badPersonAway: game.badPerson.hiddenTime > 0
+                    badPersonAway: game.badPerson.hiddenTime > 0,
+                    elapsedTime: Number(game.elapsedTime.toFixed(1)),
+                    touchedObstacle: game.touchedObstacle,
+                    animalsStolen: game.animalsStolen,
+                    earnedBadges: game.earnedBadges.slice(),
+                    unlockedBadges: game.unlockedBadges.slice(),
+                    activePowers: Object.assign({}, game.activePowers)
                 };
             }
         };
     }
 
-    function createInitialGame(settings) {
+    function createInitialGame(settings, unlockedBadges) {
         var zoo = { x: 38, y: 38, w: 148, h: 106 };
-        var player = createPlayer(zoo);
+        var badgeIds = normalizeBadgeIds(unlockedBadges);
+        var activePowers = createBadgePowers(badgeIds);
+        var player = createPlayer(zoo, activePowers);
         var game = {
             zoo: zoo,
             player: player,
-            badPerson: createBadPerson(),
+            badPerson: createBadPerson(activePowers),
             animals: [],
             obstacles: [],
             rescued: 0,
             rescueSequence: 0,
             score: 0,
-            ended: false
+            ended: false,
+            elapsedTime: 0,
+            touchedObstacle: false,
+            animalsStolen: 0,
+            earnedBadges: [],
+            unlockedBadges: badgeIds,
+            activePowers: activePowers
         };
 
         game.animals = createAnimals(game);
@@ -1371,20 +1545,29 @@
         return game;
     }
 
-    function createPlayer(zoo) {
+    function createPlayer(zoo, activePowers) {
         var startX = zoo.x + zoo.w / 2;
         var startY = zoo.y + zoo.h / 2;
-        return { x: startX, y: startY, targetX: startX, targetY: startY, r: 17, speed: 220, carrying: null };
+        return {
+            x: startX,
+            y: startY,
+            targetX: startX,
+            targetY: startY,
+            r: 17,
+            speed: 220 + activePowers.playerSpeedBonus,
+            catchBonus: activePowers.catchRadiusBonus,
+            carrying: null
+        };
     }
 
-    function createBadPerson() {
+    function createBadPerson(activePowers) {
         return {
             x: -BAD_PERSON_EDGE_OFFSET,
             y: -BAD_PERSON_EDGE_OFFSET,
             targetX: -BAD_PERSON_EDGE_OFFSET,
             targetY: -BAD_PERSON_EDGE_OFFSET,
             r: 18,
-            speed: BAD_PERSON_SPEED,
+            speed: BAD_PERSON_SPEED * activePowers.badPersonSpeedMultiplier,
             angle: Math.PI,
             hiddenTime: randomBadPersonDelay(),
             mode: "hidden",
@@ -1553,6 +1736,9 @@
     window.GameApp = {
         getState: function () {
             return JSON.parse(JSON.stringify(state));
+        },
+        getBadges: function () {
+            return JSON.parse(JSON.stringify(BADGE_DEFINITIONS));
         },
         getGameSnapshot: function () {
             return gameInstance && gameInstance.getSnapshot ? gameInstance.getSnapshot() : null;
