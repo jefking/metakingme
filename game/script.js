@@ -13,6 +13,7 @@
     var END_PANEL_DELAY_MS = 520;
     var END_PANEL_FADE_MS = 640;
     var FIREWORK_DURATION_MS = 1800;
+    var STOLEN_LOSS_LIMIT = 9;
     var BAD_PERSON_SPEED = 320;
     var BAD_PERSON_HIDE_MIN = 4;
     var BAD_PERSON_HIDE_MAX = 12;
@@ -22,6 +23,8 @@
     var COIN_DROP_INTERVAL = 10;
     var COINS_PER_DROP = 3;
     var WOLF_COUNT = 3;
+    var WOLF_HIDE_MIN = 2;
+    var WOLF_HIDE_MAX = 40;
     var WOLF_SPEED = 238;
     var WOLF_EDGE_OFFSET = 58;
     var WOLF_SAFE_DISTANCE = 180;
@@ -99,6 +102,21 @@
             "................"
         ]
     };
+    var WOLF_SPRITE = [
+        "......................",
+        "........dd............",
+        ".......dggd...........",
+        "......dglggd...d......",
+        ".....dgglgggdddgd.....",
+        "..d..dgggggggggggd....",
+        ".dgd.dggggggggggggd...",
+        "dggddgggggggggggegd...",
+        ".ddddggggggggggdggd...",
+        "....dgggggggggd.dgd...",
+        "....dgggd..dggd..d....",
+        "....dkkd...dkkd.......",
+        "......................"
+    ];
     var ANIMAL_SPRITE_PATHS = {
         zebra: "./images/zebra.png",
         turtle: "./images/turtle.png",
@@ -389,22 +407,38 @@
         return [
             '<section class="game-view" aria-label="Zoo Rescue game stage" tabindex="-1" data-stage>',
             '  <canvas class="game-canvas" width="' + WORLD_WIDTH + '" height="' + WORLD_HEIGHT + '" data-game-canvas aria-label="Mouse controlled zoo rescue game"></canvas>',
-            '  <aside class="shop-panel" data-shop aria-label="Shop">',
-            '    <div class="shop-head">',
-            '      <strong>Shop</strong>',
-            '      <span data-coin-count>0 coins</span>',
+            '  <div class="stage-controls">',
+            '    <button class="button primary help-button" type="button" data-help-toggle aria-expanded="false" aria-controls="help-panel">Help</button>',
+            '    <aside class="shop-panel" data-shop aria-label="Shop">',
+            '      <div class="shop-head">',
+            '        <strong>Shop</strong>',
+            '        <span data-coin-count>0 coins</span>',
+            '      </div>',
+            '      <button class="shop-item" type="button" data-shop-buy="knife">',
+            '        <span>Knife</span>',
+            '        <strong>3 coins</strong>',
+            '        <em data-knife-status>Not owned</em>',
+            '      </button>',
+            '      <button class="shop-item" type="button" data-shop-buy="spear">',
+            '        <span>Spear</span>',
+            '        <strong>1 coin</strong>',
+            '        <em data-spear-status>0 owned</em>',
+            '      </button>',
+            "    </aside>",
+            "  </div>",
+            '  <section class="help-panel" id="help-panel" data-help-panel aria-label="How to play" hidden>',
+            '    <div class="help-head">',
+            '      <h2>HOW TO PLAY</h2>',
+            '      <button class="button help-close" type="button" data-help-close>Close</button>',
             '    </div>',
-            '    <button class="shop-item" type="button" data-shop-buy="knife">',
-            '      <span>Knife</span>',
-            '      <strong>3 coins</strong>',
-            '      <em data-knife-status>Not owned</em>',
-            '    </button>',
-            '    <button class="shop-item" type="button" data-shop-buy="spear">',
-            '      <span>Spear</span>',
-            '      <strong>1 coin</strong>',
-            '      <em data-spear-status>0 owned</em>',
-            '    </button>',
-            "  </aside>",
+            '    <p>Protect the zoo animals from the bad guy and wolves.</p>',
+            '    <p>Enemies will try to steal animals and carry them to the drop-off corner.</p>',
+            '    <p>Use your weapons to stop enemies before they escape.</p>',
+            '    <p>Buy knives and spears from the shop to defend the zoo.</p>',
+            '    <p>Only 3 wolves can appear at once, but more will keep spawning over time.</p>',
+            '    <p>Collect and save all the animals to win the game.</p>',
+            '    <p>If too many animals are stolen, you lose.</p>',
+            "  </section>",
             "  </section>",
         ].join("");
     }
@@ -428,6 +462,9 @@
         var context = canvas.getContext("2d");
         var stage = canvas.closest("[data-stage]");
         var shop = stage ? stage.querySelector("[data-shop]") : null;
+        var helpButton = stage ? stage.querySelector("[data-help-toggle]") : null;
+        var helpPanel = stage ? stage.querySelector("[data-help-panel]") : null;
+        var helpClose = stage ? stage.querySelector("[data-help-close]") : null;
         var dpr = window.devicePixelRatio || 1;
         var running = true;
         var animationFrame = 0;
@@ -443,6 +480,13 @@
         if (shop) {
             shop.addEventListener("click", onShopClick);
         }
+        if (helpButton) {
+            helpButton.addEventListener("click", onHelpToggle);
+        }
+        if (helpClose) {
+            helpClose.addEventListener("click", onHelpClose);
+        }
+        document.addEventListener("keydown", onHelpKeyDown);
         window.addEventListener("resize", resizeCanvas);
         draw();
         animationFrame = window.requestAnimationFrame(loop);
@@ -453,6 +497,7 @@
             lastTime = performance.now();
             nextGrowth = 4;
             renderShop();
+            setHelpOpen(false);
         }
 
         function destroy() {
@@ -463,6 +508,13 @@
             if (shop) {
                 shop.removeEventListener("click", onShopClick);
             }
+            if (helpButton) {
+                helpButton.removeEventListener("click", onHelpToggle);
+            }
+            if (helpClose) {
+                helpClose.removeEventListener("click", onHelpClose);
+            }
+            document.removeEventListener("keydown", onHelpKeyDown);
             window.removeEventListener("resize", resizeCanvas);
         }
 
@@ -495,6 +547,39 @@
             }
 
             buyShopItem(button.dataset.shopBuy);
+        }
+
+        function onHelpToggle() {
+            setHelpOpen(!isHelpOpen());
+        }
+
+        function onHelpClose() {
+            setHelpOpen(false);
+            if (helpButton) {
+                helpButton.focus();
+            }
+        }
+
+        function onHelpKeyDown(event) {
+            if (event.key === "Escape" && isHelpOpen()) {
+                onHelpClose();
+            }
+        }
+
+        function isHelpOpen() {
+            return Boolean(helpPanel && !helpPanel.hidden);
+        }
+
+        function setHelpOpen(isOpen) {
+            if (!helpPanel || !helpButton) {
+                return;
+            }
+
+            helpPanel.hidden = !isOpen;
+            helpButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
+            if (isOpen && helpClose) {
+                helpClose.focus();
+            }
         }
 
         function buyShopItem(itemId) {
@@ -566,7 +651,13 @@
             movePlayer(delta * speedFactor);
             moveAnimals(delta * speedFactor);
             moveBadPerson(delta, settings.reducedMotion ? 0.7 : 1);
+            if (game.ended) {
+                return;
+            }
             moveWolves(delta, settings.reducedMotion ? 0.72 : 1);
+            if (game.ended) {
+                return;
+            }
             updateCarriedAnimal();
             updateReleasedAnimal();
             updateWolfCarriedAnimals();
@@ -765,6 +856,13 @@
 
             if (target.action === "drop") {
                 dropReleasedAnimal();
+                if (!game.ended) {
+                    badPerson.routeIndex += 1;
+                }
+                return;
+            }
+
+            if (target.action === "leave") {
                 sendBadPersonAway();
                 return;
             }
@@ -802,16 +900,23 @@
 
         function planBadPersonExitRoute() {
             var exit = findBadPersonEdgePoint(BAD_PERSON_SAFE_DISTANCE);
+            var dropPoint = edgeDropPoint(exit, game.badPerson.releaseAnimal ? game.badPerson.releaseAnimal.r : game.badPerson.r);
+            game.badPerson.dropPoint = dropPoint;
             setBadPersonRoute("exit", [
                 findSneakyPoint(game.badPerson),
+                {
+                    x: dropPoint.x,
+                    y: dropPoint.y,
+                    radius: 16,
+                    action: "drop"
+                },
                 {
                     x: exit.x,
                     y: exit.y,
                     radius: 16,
-                    action: "drop"
+                    action: "leave"
                 }
             ]);
-            game.badPerson.dropPoint = edgeDropPoint(exit, game.badPerson.releaseAnimal ? game.badPerson.releaseAnimal.r : game.badPerson.r);
         }
 
         function setBadPersonRoute(mode, route) {
@@ -829,24 +934,13 @@
             }
 
             var badPerson = game.badPerson;
-            var exit = findBadPersonEdgePoint(BAD_PERSON_SAFE_DISTANCE);
             animal.rescued = false;
             animal.carried = true;
             animal.rescueOrder = 0;
             game.rescued = Math.max(0, game.rescued - 1);
-            game.animalsStolen += 1;
             layoutRescuedAnimals();
             badPerson.releaseAnimal = animal;
-            badPerson.dropPoint = edgeDropPoint(exit, animal.r);
-            setBadPersonRoute("exit", [
-                findSneakyPoint(badPerson),
-                {
-                    x: exit.x,
-                    y: exit.y,
-                    radius: 16,
-                    action: "drop"
-                }
-            ]);
+            planBadPersonExitRoute();
         }
 
         function findRescuedAnimal() {
@@ -893,6 +987,7 @@
             animal.wanderTime = 0.6 + Math.random();
             badPerson.releaseAnimal = null;
             badPerson.dropPoint = null;
+            recordAnimalStolen();
         }
 
         function updateReleasedAnimal() {
@@ -902,8 +997,8 @@
                 return;
             }
 
-            animal.x = badPerson.x - Math.cos(badPerson.angle) * 26;
-            animal.y = badPerson.y - Math.sin(badPerson.angle) * 26;
+            animal.x = clamp(badPerson.x - Math.cos(badPerson.angle) * 26, animal.r, WORLD_WIDTH - animal.r);
+            animal.y = clamp(badPerson.y - Math.sin(badPerson.angle) * 26, animal.r, WORLD_HEIGHT - animal.r);
             animal.angle = badPerson.angle;
         }
 
@@ -1011,7 +1106,9 @@
 
             if (target.action === "drop") {
                 dropWolfAnimal(wolf);
-                sendWolfAway(wolf);
+                if (!game.ended) {
+                    wolf.routeIndex += 1;
+                }
                 return;
             }
 
@@ -1033,23 +1130,33 @@
                 return;
             }
 
-            var exit = findWolfEdgePoint();
             animal.rescued = false;
             animal.carried = true;
             animal.rescueOrder = 0;
             game.rescued = Math.max(0, game.rescued - 1);
-            game.animalsStolen += 1;
             layoutRescuedAnimals();
 
             wolf.releaseAnimal = animal;
-            wolf.dropPoint = edgeDropPoint(exit, animal.r);
+            planWolfExitRoute(wolf);
+        }
+
+        function planWolfExitRoute(wolf) {
+            var exit = findWolfEdgePoint();
+            var dropPoint = edgeDropPoint(exit, wolf.releaseAnimal ? wolf.releaseAnimal.r : wolf.r);
+            wolf.dropPoint = dropPoint;
             setWolfRoute(wolf, "exit", [
                 findSneakyPoint(wolf),
+                {
+                    x: dropPoint.x,
+                    y: dropPoint.y,
+                    radius: 16,
+                    action: "drop"
+                },
                 {
                     x: exit.x,
                     y: exit.y,
                     radius: 16,
-                    action: "drop"
+                    action: "leave"
                 }
             ]);
         }
@@ -1060,8 +1167,8 @@
                 if (!animal) {
                     return;
                 }
-                animal.x = wolf.x - Math.cos(wolf.angle) * 24;
-                animal.y = wolf.y - Math.sin(wolf.angle) * 24;
+                animal.x = clamp(wolf.x - Math.cos(wolf.angle) * 24, animal.r, WORLD_WIDTH - animal.r);
+                animal.y = clamp(wolf.y - Math.sin(wolf.angle) * 24, animal.r, WORLD_HEIGHT - animal.r);
                 animal.angle = wolf.angle;
             });
         }
@@ -1089,7 +1196,7 @@
         function defeatWolf(wolf) {
             recoverWolfAnimal(wolf);
             game.wolvesDefeated += 1;
-            wolf.hiddenTime = randomWolfDelay(wolf.index);
+            wolf.hiddenTime = randomWolfDelay();
             wolf.mode = "hidden";
             wolf.route = [];
             wolf.routeIndex = 0;
@@ -1129,13 +1236,14 @@
             animal.wanderTime = 0.6 + Math.random();
             wolf.releaseAnimal = null;
             wolf.dropPoint = null;
+            recordAnimalStolen();
         }
 
         function sendWolfAway(wolf) {
             if (wolf.releaseAnimal) {
                 dropWolfAnimal(wolf);
             }
-            wolf.hiddenTime = randomWolfDelay(wolf.index);
+            wolf.hiddenTime = randomWolfDelay();
             wolf.mode = "hidden";
             wolf.route = [];
             wolf.routeIndex = 0;
@@ -1303,8 +1411,8 @@
             if (!animal) {
                 return;
             }
-            animal.x = game.player.x + 18;
-            animal.y = game.player.y - 18;
+            animal.x = clamp(game.player.x + 18, animal.r, WORLD_WIDTH - animal.r);
+            animal.y = clamp(game.player.y - 18, animal.r, WORLD_HEIGHT - animal.r);
         }
 
         function checkCatchAndDrop() {
@@ -1336,15 +1444,36 @@
             }
         }
 
+        function recordAnimalStolen() {
+            game.animalsStolen += 1;
+            if (game.animalsStolen >= STOLEN_LOSS_LIMIT) {
+                loseGame();
+            }
+        }
+
         function endGame() {
             if (game.ended) {
                 return;
             }
             game.ended = true;
+            game.failed = false;
             game.score = game.rescued;
             game.earnedBadges = awardBadges();
             game.endStartedAt = performance.now();
             game.fireworks = settings.reducedMotion ? [] : createFireworks();
+            renderShop();
+        }
+
+        function loseGame() {
+            if (game.ended) {
+                return;
+            }
+            game.ended = true;
+            game.failed = true;
+            game.score = game.rescued;
+            game.earnedBadges = [];
+            game.endStartedAt = performance.now();
+            game.fireworks = [];
             renderShop();
         }
 
@@ -1552,55 +1681,30 @@
                 context.scale(-1, 1);
             }
 
-            context.fillStyle = settings.highContrast ? "#ffffff" : "rgba(31, 49, 30, 0.22)";
-            context.beginPath();
-            context.ellipse(-2, 18, 24, 6, 0, 0, Math.PI * 2);
-            context.fill();
-
-            context.fillStyle = settings.highContrast ? "#000000" : "#5e6570";
-            context.strokeStyle = settings.highContrast ? "#ffffff" : "#29313a";
-            context.lineWidth = 2;
-            context.beginPath();
-            context.ellipse(-4, 0, 21, 12, 0, 0, Math.PI * 2);
-            context.fill();
-            context.stroke();
-
-            context.fillStyle = settings.highContrast ? "#000000" : "#707986";
-            context.beginPath();
-            context.moveTo(12, -8);
-            context.lineTo(30, -2);
-            context.lineTo(14, 7);
-            context.closePath();
-            context.fill();
-            context.stroke();
-
-            context.fillStyle = settings.highContrast ? "#ffe600" : "#29313a";
-            context.beginPath();
-            context.moveTo(7, -9);
-            context.lineTo(12, -22);
-            context.lineTo(17, -7);
-            context.closePath();
-            context.moveTo(19, -5);
-            context.lineTo(25, -17);
-            context.lineTo(26, -2);
-            context.closePath();
-            context.fill();
-
-            context.fillStyle = settings.highContrast ? "#ffffff" : "#444b54";
-            context.fillRect(-18, 8, 5, 14);
-            context.fillRect(-1, 9, 5, 13);
-            context.fillRect(12, 7, 5, 14);
-
-            context.strokeStyle = settings.highContrast ? "#ffe600" : "#444b54";
-            context.lineWidth = 5;
-            context.beginPath();
-            context.moveTo(-24, -3);
-            context.lineTo(-38, -12);
-            context.stroke();
-
-            context.fillStyle = settings.highContrast ? "#ffe600" : "#f0b13d";
-            context.fillRect(23, -4, 4, 4);
+            drawWolfPixelSprite();
             context.restore();
+        }
+
+        function drawWolfPixelSprite() {
+            var scale = 3;
+            var colors = {
+                d: settings.highContrast ? "#ffffff" : "#2c3138",
+                g: settings.highContrast ? "#000000" : "#5e6570",
+                l: settings.highContrast ? "#ffe600" : "#8a929d",
+                k: settings.highContrast ? "#ffffff" : "#1f2328",
+                e: settings.highContrast ? "#ffe600" : "#f0b13d"
+            };
+
+            context.translate(-(WOLF_SPRITE[0].length * scale) / 2, -7 * scale);
+            WOLF_SPRITE.forEach(function (row, y) {
+                for (var x = 0; x < row.length; x += 1) {
+                    var color = colors[row.charAt(x)];
+                    if (color) {
+                        context.fillStyle = color;
+                        context.fillRect(x * scale, y * scale, scale, scale);
+                    }
+                }
+            });
         }
 
         function drawAnimal(animal) {
@@ -1994,6 +2098,7 @@
         }
 
         function drawEndPanel(alpha) {
+            var failed = Boolean(game.failed);
             var panel = {
                 x: settings.largeText ? 96 : 140,
                 y: settings.largeText ? 50 : 64,
@@ -2003,7 +2108,7 @@
             var contentX = panel.x + 34;
             var contentW = panel.w - 68;
             var statGap = 12;
-            var statY = panel.y + (settings.largeText ? 152 : 136);
+            var statY = panel.y + (settings.largeText ? (failed ? 198 : 152) : (failed ? 176 : 136));
             var statH = settings.largeText ? 74 : 64;
             var statW = (contentW - statGap * 3) / 4;
             var badgeY = statY + statH + (settings.largeText ? 42 : 40);
@@ -2026,13 +2131,22 @@
             context.rect(panel.x + 20, panel.y + 20, panel.w - 40, panel.h - 40);
             context.clip();
 
-            drawTextFit("Zoo saved!", WORLD_WIDTH / 2, panel.y + (settings.largeText ? 58 : 54), contentW, settings.largeText ? 45 : 40, 28, "900", settings.highContrast ? "#ffe600" : "#116f63", "center");
+            drawTextFit(failed ? "Zoo failed!" : "Zoo saved!", WORLD_WIDTH / 2, panel.y + (settings.largeText ? 58 : 54), contentW, settings.largeText ? 45 : 40, 28, "900", failed ? (settings.highContrast ? "#ff5fb7" : "#c83f67") : (settings.highContrast ? "#ffe600" : "#116f63"), "center");
             drawTextFit("Score " + game.score + " / " + game.animals.length, WORLD_WIDTH / 2, panel.y + (settings.largeText ? 105 : 98), contentW, settings.largeText ? 34 : 30, 22, "900", settings.highContrast ? "#ffffff" : "#1d241f", "center");
+            if (failed) {
+                drawFailureSign(WORLD_WIDTH / 2 - 138, panel.y + (settings.largeText ? 124 : 116), 276, settings.largeText ? 48 : 42);
+            }
 
             drawStatCell("Time", formatTime(game.elapsedTime), contentX, statY, statW, statH);
             drawStatCell("Rescued", game.rescued + " of " + game.animals.length, contentX + (statW + statGap), statY, statW, statH);
-            drawStatCell("Thief grabs", String(game.animalsStolen), contentX + (statW + statGap) * 2, statY, statW, statH);
+            drawStatCell("Stolen", game.animalsStolen + " / " + STOLEN_LOSS_LIMIT, contentX + (statW + statGap) * 2, statY, statW, statH);
             drawStatCell("Obstacles", game.touchedObstacle ? "Touched" : "Clean", contentX + (statW + statGap) * 3, statY, statW, statH);
+
+            if (failed) {
+                drawTextFit("Too many animals were stolen.", contentX, badgeY + 24, contentW, settings.largeText ? 28 : 24, 17, "900", settings.highContrast ? "#ffffff" : "#59635d", "left");
+                context.restore();
+                return;
+            }
 
             drawTextFit("Badges earned: " + badgeIds.length, contentX, badgeY - 16, contentW, settings.largeText ? 22 : 19, 15, "900", settings.highContrast ? "#ffe600" : "#1d241f", "left");
 
@@ -2050,6 +2164,21 @@
                 drawBadgeRow(badge, contentX, badgeY + index * (rowH + rowGap), contentW, rowH);
             });
 
+            context.restore();
+        }
+
+        function drawFailureSign(x, y, width, height) {
+            var fill = settings.highContrast ? "#000000" : "#c83f67";
+            var stroke = settings.highContrast ? "#ff5fb7" : "#8d1738";
+            var ink = settings.highContrast ? "#ff5fb7" : "#ffffff";
+
+            context.save();
+            context.fillStyle = fill;
+            context.fillRect(x, y, width, height);
+            context.strokeStyle = stroke;
+            context.lineWidth = 4;
+            context.strokeRect(x + 2, y + 2, width - 4, height - 4);
+            drawTextFit("FAILURE", x + width / 2, y + height - 12, width - 28, height - 12, 22, "900", ink, "center");
             context.restore();
         }
 
@@ -2148,10 +2277,12 @@
                     animals: game.animals.length,
                     obstacles: game.obstacles.length,
                     ended: game.ended,
+                    failed: game.failed,
                     badPersonAway: game.badPerson.hiddenTime > 0,
                     elapsedTime: Number(game.elapsedTime.toFixed(1)),
                     touchedObstacle: game.touchedObstacle,
                     animalsStolen: game.animalsStolen,
+                    stolenLossLimit: STOLEN_LOSS_LIMIT,
                     coins: game.coins,
                     coinPickups: game.coinPickups.length,
                     inventory: Object.assign({}, game.inventory),
@@ -2194,6 +2325,7 @@
             rescueSequence: 0,
             score: 0,
             ended: false,
+            failed: false,
             elapsedTime: 0,
             touchedObstacle: false,
             animalsStolen: 0,
@@ -2263,7 +2395,7 @@
                 r: 16,
                 speed: WOLF_SPEED * activePowers.badPersonSpeedMultiplier,
                 angle: Math.PI,
-                hiddenTime: randomWolfDelay(index),
+                hiddenTime: randomWolfDelay(),
                 mode: "hidden",
                 route: [],
                 routeIndex: 0,
@@ -2278,8 +2410,8 @@
         return BAD_PERSON_HIDE_MIN + Math.random() * (BAD_PERSON_HIDE_MAX - BAD_PERSON_HIDE_MIN);
     }
 
-    function randomWolfDelay(index) {
-        return 5 + index * 2.4 + Math.random() * 6;
+    function randomWolfDelay() {
+        return WOLF_HIDE_MIN + Math.random() * (WOLF_HIDE_MAX - WOLF_HIDE_MIN);
     }
 
     function loadAnimalSprites() {
