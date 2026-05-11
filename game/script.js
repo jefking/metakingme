@@ -35,6 +35,8 @@
     var BARRIER_RADIUS = 18;
     var BARRIER_COOLDOWN_MIN = 10;
     var BARRIER_COOLDOWN_MAX = 50;
+    var BARRIER_LIFETIME_MIN = 10;
+    var BARRIER_LIFETIME_MAX = 30;
     var BARRIER_COVERAGE_LIMIT = 0.045;
     var BARRIER_WALL_GAP = 34;
     var BARRIER_NOTICE_SECONDS = 3.4;
@@ -456,7 +458,7 @@
             '    <p>Enemies will try to steal animals and carry them to the drop-off corner.</p>',
             '    <p>Use your weapons to stop enemies before they escape.</p>',
             '    <p>Buy knives and spears from the shop to defend the zoo.</p>',
-            '    <p>Use bricks and stones to build barriers and protect the zoo animals from enemies.</p>',
+            '    <p>Use bricks and stones to build temporary barriers that disappear after 10 to 30 seconds.</p>',
             '    <p>Be careful not to block the entire map, or your barriers will reset.</p>',
             '    <p>Only 3 wolves can appear at once, but more will keep spawning over time.</p>',
             '    <p>Collect and save all the animals to win the game.</p>',
@@ -801,9 +803,37 @@
                 shouldRender = shouldRender || game.barrierNoticeTimer === 0;
             }
 
+            updatePlacedBarrierLifetimes(delta);
+
             if (shouldRender) {
                 renderShop();
             }
+        }
+
+        function updatePlacedBarrierLifetimes(delta) {
+            if (!game.placedBarriers.length) {
+                return;
+            }
+
+            var expired = [];
+
+            game.placedBarriers.forEach(function (barrier) {
+                barrier.lifetime -= delta;
+                if (barrier.lifetime <= 0) {
+                    expired.push(barrier);
+                }
+            });
+
+            if (!expired.length) {
+                return;
+            }
+
+            game.placedBarriers = game.placedBarriers.filter(function (barrier) {
+                return expired.indexOf(barrier) === -1;
+            });
+            game.obstacles = game.obstacles.filter(function (obstacle) {
+                return !obstacle.barrier || expired.indexOf(obstacle) === -1;
+            });
         }
 
         function movePlayer(delta) {
@@ -2745,6 +2775,10 @@
         return BARRIER_COOLDOWN_MIN + Math.random() * (BARRIER_COOLDOWN_MAX - BARRIER_COOLDOWN_MIN);
     }
 
+    function randomBarrierLifetime() {
+        return BARRIER_LIFETIME_MIN + Math.random() * (BARRIER_LIFETIME_MAX - BARRIER_LIFETIME_MIN);
+    }
+
     function loadAnimalSprites() {
         var sprites = {};
         Object.keys(ANIMAL_SPRITE_PATHS).forEach(function (kind) {
@@ -2829,6 +2863,7 @@
             currentRadius: BARRIER_RADIUS,
             type: type,
             barrier: true,
+            lifetime: randomBarrierLifetime(),
             variant: Math.floor(Math.random() * 4)
         };
     }
