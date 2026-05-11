@@ -38,6 +38,11 @@
     var BARRIER_COVERAGE_LIMIT = 0.045;
     var BARRIER_WALL_GAP = 34;
     var BARRIER_NOTICE_SECONDS = 3.4;
+    var SHOP_WIDTH = 154;
+    var SHOP_HEIGHT = 96;
+    var SHOP_EDGE_PADDING = 0;
+    var SHOP_BUY_REACH = 26;
+    var SHOP_ITEM_RADIUS = 24;
     var SHOP_ITEMS = {
         knife: { id: "knife", name: "Knife", cost: 3 },
         spear: { id: "spear", name: "Spear", cost: 1 },
@@ -186,6 +191,28 @@
             ["zooInk", 11, 1, 1, 3],
             ["zooInk", 14, 1, 1, 3],
             ["zooInk", 11, 4, 4, 1]
+        ]
+    };
+    var SHOP_SIGN_SPRITE = {
+        width: 15,
+        height: 5,
+        rects: [
+            ["shopInk", 0, 0, 3, 1],
+            ["shopInk", 0, 1, 1, 1],
+            ["shopInk", 0, 2, 3, 1],
+            ["shopInk", 2, 3, 1, 1],
+            ["shopInk", 0, 4, 3, 1],
+            ["shopInk", 4, 0, 1, 5],
+            ["shopInk", 6, 0, 1, 5],
+            ["shopInk", 4, 2, 3, 1],
+            ["shopInk", 8, 0, 3, 1],
+            ["shopInk", 8, 1, 1, 3],
+            ["shopInk", 10, 1, 1, 3],
+            ["shopInk", 8, 4, 3, 1],
+            ["shopInk", 12, 0, 1, 5],
+            ["shopInk", 12, 0, 3, 1],
+            ["shopInk", 14, 1, 1, 2],
+            ["shopInk", 12, 2, 3, 1]
         ]
     };
     var TREE_SPRITES = [
@@ -455,7 +482,7 @@
             '    <p>Protect the zoo animals from the bad guy and wolves.</p>',
             '    <p>Enemies will try to steal animals and carry them to the drop-off corner.</p>',
             '    <p>Use your weapons to stop enemies before they escape.</p>',
-            '    <p>Buy knives and spears from the shop to defend the zoo.</p>',
+            '    <p>Walk to the shop stalls to buy knives and spears.</p>',
             '    <p>Use bricks and stones to build barriers and protect the zoo animals from enemies.</p>',
             '    <p>Be careful not to block the entire map, or your barriers will reset.</p>',
             '    <p>Only 3 wolves can appear at once, but more will keep spawning over time.</p>',
@@ -557,8 +584,15 @@
 
         function onCanvasPointerDown(event) {
             var point = eventToWorld(event);
+            if (queueShopPurchaseAtPoint(point)) {
+                return;
+            }
             if (placeSelectedBarrier(point)) {
                 return;
+            }
+            if (game.pendingShopPurchase) {
+                game.pendingShopPurchase = null;
+                renderShop();
             }
             game.player.targetX = point.x;
             game.player.targetY = point.y;
@@ -578,7 +612,7 @@
                 return;
             }
 
-            buyShopItem(button.dataset.shopBuy);
+            queueShopPurchase(button.dataset.shopBuy);
         }
 
         function onHelpToggle() {
@@ -614,25 +648,81 @@
             }
         }
 
-        function buyShopItem(itemId) {
+        function queueShopPurchase(itemId) {
             var item = SHOP_ITEMS[itemId];
             if (!item || game.ended) {
-                return;
+                return false;
             }
 
             if (item.barrier) {
                 buyBarrierPack(itemId, item);
-                return;
+                return true;
             }
 
             if (game.coins < item.cost) {
-                return;
+                return false;
             }
 
             if (itemId === "knife" && game.inventory.knife) {
+                return false;
+            }
+
+            game.pendingShopPurchase = itemId;
+            game.placementMode = null;
+            setPlayerShopTarget(itemId);
+            renderShop();
+            completePendingShopPurchase();
+            return true;
+        }
+
+        function queueShopPurchaseAtPoint(point) {
+            var itemId = getShopItemAtPoint(point);
+            if (!itemId) {
+                return false;
+            }
+
+            return queueShopPurchase(itemId);
+        }
+
+        function setPlayerShopTarget(itemId) {
+            var target = getShopItemPoint(game.shop, itemId);
+            game.player.targetX = target.x;
+            game.player.targetY = target.y;
+        }
+
+        function completePendingShopPurchase() {
+            var itemId = game.pendingShopPurchase;
+            if (!itemId) {
                 return;
             }
 
+            if (!canBuyWeaponItem(itemId)) {
+                game.pendingShopPurchase = null;
+                renderShop();
+                return;
+            }
+
+            if (!isPlayerNearShopItem(itemId)) {
+                return;
+            }
+
+            game.pendingShopPurchase = null;
+            buyWeaponItem(itemId);
+        }
+
+        function canBuyWeaponItem(itemId) {
+            var item = SHOP_ITEMS[itemId];
+            if (!item || item.barrier || game.ended) {
+                return false;
+            }
+            if (game.coins < item.cost) {
+                return false;
+            }
+            return itemId !== "knife" || !game.inventory.knife;
+        }
+
+        function buyWeaponItem(itemId) {
+            var item = SHOP_ITEMS[itemId];
             game.coins -= item.cost;
             if (itemId === "knife") {
                 game.inventory.knife = true;
@@ -643,6 +733,7 @@
         }
 
         function buyBarrierPack(itemId, item) {
+            game.pendingShopPurchase = null;
             if (game.inventory[itemId] > 0) {
                 game.placementMode = itemId;
                 renderShop();
@@ -684,10 +775,10 @@
                 coinCount.textContent = game.coins + (game.coins === 1 ? " coin" : " coins");
             }
             if (knifeStatus) {
-                knifeStatus.textContent = game.inventory.knife ? "Owned" : "Not owned";
+                knifeStatus.textContent = weaponShopStatus("knife");
             }
             if (spearStatus) {
-                spearStatus.textContent = game.inventory.spear + " owned";
+                spearStatus.textContent = weaponShopStatus("spear");
             }
             if (knifeButton) {
                 knifeButton.disabled = game.ended || game.inventory.knife || game.coins < SHOP_ITEMS.knife.cost;
@@ -703,6 +794,46 @@
                 barrierNote.hidden = !(game.barrierNoticeTimer > 0 && game.barrierNotice);
                 barrierNote.textContent = game.barrierNotice || "";
             }
+        }
+
+        function weaponShopStatus(itemId) {
+            if (itemId === "knife" && game.inventory.knife) {
+                return "Owned";
+            }
+
+            if (game.pendingShopPurchase === itemId) {
+                return isPlayerNearShopItem(itemId) ? "Buying" : "Walking to shop";
+            }
+
+            if (game.coins < SHOP_ITEMS[itemId].cost) {
+                return itemId === "knife" ? "Need coins" : game.inventory.spear + " owned, need coins";
+            }
+
+            if (isPlayerNearShopItem(itemId)) {
+                return itemId === "knife" ? "In reach" : game.inventory.spear + " owned, in reach";
+            }
+
+            return itemId === "knife" ? "Walk to buy" : game.inventory.spear + " owned, walk to buy";
+        }
+
+        function isPlayerNearShopItem(itemId) {
+            return distance(game.player, getShopItemPoint(game.shop, itemId)) <= game.player.r + SHOP_BUY_REACH;
+        }
+
+        function getShopItemAtPoint(point) {
+            if (!game.shop || !pointInRect(point.x, point.y, game.shop)) {
+                return null;
+            }
+
+            if (distance(point, getShopItemPoint(game.shop, "knife")) <= SHOP_ITEM_RADIUS) {
+                return "knife";
+            }
+
+            if (distance(point, getShopItemPoint(game.shop, "spear")) <= SHOP_ITEM_RADIUS) {
+                return "spear";
+            }
+
+            return null;
         }
 
         function renderBarrierStatus(itemId, status) {
@@ -761,6 +892,7 @@
             updateBarrierTimers(delta);
             var speedFactor = settings.reducedMotion ? 0.55 : 1;
             movePlayer(delta * speedFactor);
+            completePendingShopPurchase();
             moveAnimals(delta * speedFactor);
             moveBadPerson(delta, settings.reducedMotion ? 0.7 : 1);
             if (game.ended) {
@@ -1831,6 +1963,7 @@
 
             drawField(palette);
             drawZoo(palette);
+            drawShop(palette);
             game.obstacles.forEach(function (obstacle) {
                 drawObstacle(obstacle, palette);
             });
@@ -1887,6 +2020,69 @@
             drawPixelRect(signX, signY, signW, signH, palette.zooWood);
             drawPixelRect(signX + 6, signY + 6, signW - 12, signH - 12, palette.zooFloor);
             drawPixelSprite(ZOO_SIGN_SPRITE, zoo.x + zoo.w / 2, zoo.y + zoo.h / 2, 4, palette);
+        }
+
+        function drawShop(palette) {
+            var shop = game.shop;
+            var signW = 96;
+            var signH = 30;
+            var signX = shop.x + shop.w / 2 - signW / 2;
+            var signY = shop.y + 8;
+            var knifeSpot = getShopItemPoint(shop, "knife");
+            var spearSpot = getShopItemPoint(shop, "spear");
+
+            drawPixelRect(shop.x, shop.y, shop.w, shop.h, palette.shopFloor);
+            drawPixelRect(shop.x + 8, shop.y + 8, shop.w - 16, shop.h - 16, palette.shopShade);
+
+            for (var x = shop.x + 10; x < shop.x + shop.w - 6; x += 24) {
+                drawPixelRect(x, shop.y - 4, 8, shop.h + 8, palette.shopWood);
+                drawPixelRect(x + 2, shop.y, 3, shop.h, palette.shopWoodLight);
+            }
+
+            drawPixelRect(shop.x - 4, shop.y + 10, shop.w + 8, 8, palette.shopWood);
+            drawPixelRect(shop.x - 4, shop.y + shop.h - 20, shop.w + 8, 8, palette.shopWood);
+            drawPixelRect(signX, signY, signW, signH, palette.shopWood);
+            drawPixelRect(signX + 6, signY + 6, signW - 12, signH - 12, palette.shopFloor);
+            drawPixelSprite(SHOP_SIGN_SPRITE, shop.x + shop.w / 2, signY + signH / 2 + 1, 4, palette);
+
+            drawShopItemStand(knifeSpot, "knife", palette);
+            drawShopItemStand(spearSpot, "spear", palette);
+        }
+
+        function drawShopItemStand(spot, itemId, palette) {
+            var isPending = game.pendingShopPurchase === itemId;
+            var standW = 50;
+            var standH = 28;
+            var left = spot.x - standW / 2;
+            var top = spot.y - standH / 2;
+
+            drawPixelRect(left, top, standW, standH, palette.shopCounter);
+            drawPixelRect(left + 4, top + 4, standW - 8, 5, palette.shopCounterLight);
+            if (isPending) {
+                context.strokeStyle = settings.highContrast ? "#ffe600" : "#116f63";
+                context.lineWidth = 3;
+                context.strokeRect(Math.round(left - 3), Math.round(top - 3), standW + 6, standH + 6);
+            }
+
+            if (itemId === "knife") {
+                drawKnifeIcon(spot.x, spot.y + 2, palette);
+            } else {
+                drawSpearIcon(spot.x, spot.y + 3, palette);
+            }
+        }
+
+        function drawKnifeIcon(x, y, palette) {
+            drawPixelRect(x - 15, y + 2, 12, 5, palette.shopHandle);
+            drawPixelRect(x - 4, y, 21, 7, palette.shopBlade);
+            drawPixelRect(x + 13, y + 2, 5, 3, palette.shopBladeLight);
+            drawPixelRect(x - 7, y - 2, 4, 11, palette.shopInk);
+        }
+
+        function drawSpearIcon(x, y, palette) {
+            drawPixelRect(x - 18, y + 2, 29, 4, palette.shopHandle);
+            drawPixelRect(x + 9, y - 3, 12, 14, palette.shopBlade);
+            drawPixelRect(x + 13, y + 1, 5, 4, palette.shopBladeLight);
+            drawPixelRect(x + 7, y, 4, 8, palette.shopInk);
         }
 
         function drawObstacle(obstacle, palette) {
@@ -2299,6 +2495,16 @@
                     zooWood: "#00e5ff",
                     zooWoodLight: "#ffffff",
                     zooInk: "#000000",
+                    shopFloor: "#ffffff",
+                    shopShade: "#d8d8d8",
+                    shopWood: "#ff5fb7",
+                    shopWoodLight: "#ffffff",
+                    shopInk: "#000000",
+                    shopCounter: "#101010",
+                    shopCounterLight: "#ffffff",
+                    shopHandle: "#ffe600",
+                    shopBlade: "#ffffff",
+                    shopBladeLight: "#00e5ff",
                     spriteShadow: "#ffffff",
                     treeLeaf: "#ffe600",
                     treeLeafLight: "#ffffff",
@@ -2338,6 +2544,16 @@
                 zooWood: "#8b5a2b",
                 zooWoodLight: "#b37739",
                 zooInk: "#243322",
+                shopFloor: "#f7e3a4",
+                shopShade: "#e8c875",
+                shopWood: "#6f3f92",
+                shopWoodLight: "#9766bf",
+                shopInk: "#243322",
+                shopCounter: "#624225",
+                shopCounterLight: "#a66f3a",
+                shopHandle: "#75431b",
+                shopBlade: "#c4c9c7",
+                shopBladeLight: "#f8f8f8",
                 spriteShadow: "rgba(31, 49, 30, 0.24)",
                 treeLeaf: "#1f7a3a",
                 treeLeafLight: "#2da450",
@@ -2603,6 +2819,13 @@
                     coins: game.coins,
                     coinPickups: game.coinPickups.length,
                     inventory: Object.assign({}, game.inventory),
+                    shop: {
+                        x: Math.round(game.shop.x),
+                        y: Math.round(game.shop.y),
+                        w: game.shop.w,
+                        h: game.shop.h
+                    },
+                    pendingShopPurchase: game.pendingShopPurchase,
                     placedBarriers: game.placedBarriers.length,
                     placementMode: game.placementMode,
                     barrierCooldown: Number(game.barrierCooldown.toFixed(1)),
@@ -2627,8 +2850,10 @@
         var badgeIds = normalizeBadgeIds(unlockedBadges);
         var activePowers = createBadgePowers(badgeIds);
         var player = createPlayer(zoo, activePowers);
+        var shop = createShop(zoo, player);
         var game = {
             zoo: zoo,
+            shop: shop,
             player: player,
             badPerson: createBadPerson(activePowers),
             wolves: createWolves(activePowers),
@@ -2644,6 +2869,7 @@
                 brick: 0,
                 stone: 0
             },
+            pendingShopPurchase: null,
             placementMode: null,
             barrierCooldown: 0,
             barrierNotice: "",
@@ -2689,6 +2915,83 @@
             speed: 220 + activePowers.playerSpeedBonus,
             catchBonus: activePowers.catchRadiusBonus,
             carrying: null
+        };
+    }
+
+    function createShop(zoo, player) {
+        for (var attempt = 0; attempt < 80; attempt += 1) {
+            var shop = randomShopEdgeSpot();
+            if (isSafeShopSpot(shop, zoo, player)) {
+                return shop;
+            }
+        }
+
+        return {
+            x: WORLD_WIDTH - SHOP_WIDTH - SHOP_EDGE_PADDING,
+            y: WORLD_HEIGHT - SHOP_HEIGHT - SHOP_EDGE_PADDING,
+            w: SHOP_WIDTH,
+            h: SHOP_HEIGHT
+        };
+    }
+
+    function randomShopEdgeSpot() {
+        var edge = Math.floor(Math.random() * 4);
+        var maxX = WORLD_WIDTH - SHOP_WIDTH - SHOP_EDGE_PADDING;
+        var maxY = WORLD_HEIGHT - SHOP_HEIGHT - SHOP_EDGE_PADDING;
+
+        if (edge === 0) {
+            return {
+                x: SHOP_EDGE_PADDING + Math.random() * (maxX - SHOP_EDGE_PADDING),
+                y: SHOP_EDGE_PADDING,
+                w: SHOP_WIDTH,
+                h: SHOP_HEIGHT
+            };
+        }
+        if (edge === 1) {
+            return {
+                x: maxX,
+                y: SHOP_EDGE_PADDING + Math.random() * (maxY - SHOP_EDGE_PADDING),
+                w: SHOP_WIDTH,
+                h: SHOP_HEIGHT
+            };
+        }
+        if (edge === 2) {
+            return {
+                x: SHOP_EDGE_PADDING + Math.random() * (maxX - SHOP_EDGE_PADDING),
+                y: maxY,
+                w: SHOP_WIDTH,
+                h: SHOP_HEIGHT
+            };
+        }
+        return {
+            x: SHOP_EDGE_PADDING,
+            y: SHOP_EDGE_PADDING + Math.random() * (maxY - SHOP_EDGE_PADDING),
+            w: SHOP_WIDTH,
+            h: SHOP_HEIGHT
+        };
+    }
+
+    function isSafeShopSpot(shop, zoo, player) {
+        var zooBuffer = {
+            x: zoo.x - 52,
+            y: zoo.y - 52,
+            w: zoo.w + 104,
+            h: zoo.h + 104
+        };
+
+        if (rectsOverlap(shop, zooBuffer)) {
+            return false;
+        }
+
+        return distance(rectCenter(shop), player) >= player.r + 120;
+    }
+
+    function getShopItemPoint(shop, itemId) {
+        var xOffset = itemId === "knife" ? shop.w * 0.34 : shop.w * 0.66;
+        return {
+            x: shop.x + xOffset,
+            y: shop.y + shop.h * 0.64,
+            r: SHOP_ITEM_RADIUS
         };
     }
 
@@ -2792,6 +3095,10 @@
             return false;
         }
 
+        if (pointInRect(spot.x, spot.y, expandRect(game.shop, spot.r + 54))) {
+            return false;
+        }
+
         if (distance(spot, game.player) < spot.r + game.player.r + 120) {
             return false;
         }
@@ -2842,6 +3149,10 @@
         };
 
         if (pointInRect(barrier.x, barrier.y, zooBlock)) {
+            return false;
+        }
+
+        if (pointInRect(barrier.x, barrier.y, expandRect(game.shop, barrier.radius))) {
             return false;
         }
 
@@ -2914,6 +3225,10 @@
             return false;
         }
 
+        if (pointInRect(obstacle.x, obstacle.y, expandRect(game.shop, obstacle.radius + 44))) {
+            return false;
+        }
+
         if (distance(obstacle, game.player) < obstacle.radius + game.player.r + 80) {
             return false;
         }
@@ -2937,12 +3252,32 @@
         return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
+    function rectCenter(rect) {
+        return {
+            x: rect.x + rect.w / 2,
+            y: rect.y + rect.h / 2
+        };
+    }
+
+    function expandRect(rect, amount) {
+        return {
+            x: rect.x - amount,
+            y: rect.y - amount,
+            w: rect.w + amount * 2,
+            h: rect.h + amount * 2
+        };
+    }
+
     function clamp(value, min, max) {
         return Math.max(min, Math.min(max, value));
     }
 
     function pointInRect(x, y, rect) {
         return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+    }
+
+    function rectsOverlap(a, b) {
+        return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
     }
 
     app.addEventListener("click", function (event) {
