@@ -33,6 +33,9 @@
     var SHOP_HEIGHT = 112;
     var SHOP_EDGE_MARGIN = 0;
     var SHOP_CLEARANCE = 44;
+    var SHOP_CONTROL_CLEARANCE = 18;
+    var SHOP_CONTROL_FALLBACK_WIDTH = 300;
+    var SHOP_CONTROL_FALLBACK_HEIGHT = 380;
     var KNIFE_REACH = 24;
     var SPEAR_REACH = 86;
     var BARRIER_PACK_SIZE = 3;
@@ -446,7 +449,7 @@
         return [
             '<section class="game-view" aria-label="Zoo Rescue game stage" tabindex="-1" data-stage>',
             '  <canvas class="game-canvas" width="' + WORLD_WIDTH + '" height="' + WORLD_HEIGHT + '" data-game-canvas aria-label="Mouse controlled zoo rescue game"></canvas>',
-            '  <div class="stage-controls">',
+            '  <div class="stage-controls" data-stage-controls>',
             '    <button class="button primary help-button" type="button" data-help-toggle aria-expanded="false" aria-controls="help-panel">Help</button>',
             '    <aside class="shop-panel" data-shop aria-label="Inventory and build tools">',
             '      <div class="shop-head">',
@@ -514,6 +517,7 @@
         var context = canvas.getContext("2d");
         var stage = canvas.closest("[data-stage]");
         var shop = stage ? stage.querySelector("[data-shop]") : null;
+        var stageControls = stage ? stage.querySelector("[data-stage-controls]") : null;
         var helpButton = stage ? stage.querySelector("[data-help-toggle]") : null;
         var helpPanel = stage ? stage.querySelector("[data-help-panel]") : null;
         var helpClose = stage ? stage.querySelector("[data-help-close]") : null;
@@ -523,7 +527,8 @@
         var lastTime = performance.now();
         var nextGrowth = 4;
         var unlockedBadges = loadUnlockedBadges();
-        var game = createInitialGame(settings, unlockedBadges);
+        var shopBlockedRects = getShopBlockedRects(canvas, stageControls);
+        var game = createInitialGame(settings, unlockedBadges, shopBlockedRects);
 
         resizeCanvas();
         renderShop();
@@ -545,7 +550,8 @@
 
         function reset() {
             unlockedBadges = loadUnlockedBadges();
-            game = createInitialGame(settings, unlockedBadges);
+            shopBlockedRects = getShopBlockedRects(canvas, stageControls);
+            game = createInitialGame(settings, unlockedBadges, shopBlockedRects);
             lastTime = performance.now();
             nextGrowth = 4;
             renderShop();
@@ -2811,12 +2817,51 @@
         };
     }
 
-    function createInitialGame(settings, unlockedBadges) {
+    function getShopBlockedRects(canvas, stageControls) {
+        if (!stageControls) {
+            return [];
+        }
+        if (!canvas || !canvas.getBoundingClientRect || !stageControls.getBoundingClientRect) {
+            return defaultShopBlockedRects();
+        }
+
+        var canvasRect = canvas.getBoundingClientRect();
+        var controlsRect = stageControls.getBoundingClientRect();
+        if (canvasRect.width <= 0 || canvasRect.height <= 0 || controlsRect.width <= 0 || controlsRect.height <= 0) {
+            return defaultShopBlockedRects();
+        }
+
+        var left = clamp(((controlsRect.left - canvasRect.left) / canvasRect.width) * WORLD_WIDTH, 0, WORLD_WIDTH);
+        var top = clamp(((controlsRect.top - canvasRect.top) / canvasRect.height) * WORLD_HEIGHT, 0, WORLD_HEIGHT);
+        var right = clamp(((controlsRect.right - canvasRect.left) / canvasRect.width) * WORLD_WIDTH, 0, WORLD_WIDTH);
+        var bottom = clamp(((controlsRect.bottom - canvasRect.top) / canvasRect.height) * WORLD_HEIGHT, 0, WORLD_HEIGHT);
+        if (right <= left || bottom <= top) {
+            return defaultShopBlockedRects();
+        }
+
+        return [padRect({
+            x: left,
+            y: top,
+            w: right - left,
+            h: bottom - top
+        }, SHOP_CONTROL_CLEARANCE)];
+    }
+
+    function defaultShopBlockedRects() {
+        return [padRect({
+            x: WORLD_WIDTH - SHOP_CONTROL_FALLBACK_WIDTH,
+            y: 0,
+            w: SHOP_CONTROL_FALLBACK_WIDTH,
+            h: SHOP_CONTROL_FALLBACK_HEIGHT
+        }, SHOP_CONTROL_CLEARANCE)];
+    }
+
+    function createInitialGame(settings, unlockedBadges, shopBlockedRects) {
         var zoo = { x: 38, y: 38, w: 148, h: 106 };
         var badgeIds = normalizeBadgeIds(unlockedBadges);
         var activePowers = createBadgePowers(badgeIds);
         var player = createPlayer(zoo, activePowers);
-        var shop = createShop(zoo, player);
+        var shop = createShop(zoo, player, shopBlockedRects);
         var game = {
             zoo: zoo,
             shop: shop,
@@ -2883,21 +2928,16 @@
         };
     }
 
-    function createShop(zoo, player) {
+    function createShop(zoo, player, blockedRects) {
+        var shopBlockedRects = blockedRects || defaultShopBlockedRects();
         for (var attempt = 0; attempt < 100; attempt += 1) {
             var shop = randomShopEdgeSpot();
-            if (isSafeShopSpot(shop, zoo, player)) {
+            if (isSafeShopSpot(shop, zoo, player, shopBlockedRects)) {
                 return shop;
             }
         }
 
-        return {
-            x: WORLD_WIDTH - SHOP_WIDTH - SHOP_EDGE_MARGIN,
-            y: WORLD_HEIGHT - SHOP_HEIGHT - SHOP_EDGE_MARGIN,
-            w: SHOP_WIDTH,
-            h: SHOP_HEIGHT,
-            activeItemId: null
-        };
+        return fallbackShopSpot(zoo, player, shopBlockedRects);
     }
 
     function randomShopEdgeSpot() {
@@ -2913,6 +2953,27 @@
             y = SHOP_EDGE_MARGIN + Math.random() * (WORLD_HEIGHT - SHOP_HEIGHT - SHOP_EDGE_MARGIN * 2);
         }
 
+        return makeShopSpot(x, y);
+    }
+
+    function fallbackShopSpot(zoo, player, blockedRects) {
+        var spots = [
+            makeShopSpot(WORLD_WIDTH - SHOP_WIDTH - SHOP_EDGE_MARGIN, WORLD_HEIGHT - SHOP_HEIGHT - SHOP_EDGE_MARGIN),
+            makeShopSpot(SHOP_EDGE_MARGIN, WORLD_HEIGHT - SHOP_HEIGHT - SHOP_EDGE_MARGIN),
+            makeShopSpot(SHOP_EDGE_MARGIN, SHOP_EDGE_MARGIN),
+            makeShopSpot(WORLD_WIDTH - SHOP_WIDTH - SHOP_EDGE_MARGIN, SHOP_EDGE_MARGIN)
+        ];
+
+        for (var index = 0; index < spots.length; index += 1) {
+            if (isSafeShopSpot(spots[index], zoo, player, blockedRects)) {
+                return spots[index];
+            }
+        }
+
+        return spots[0];
+    }
+
+    function makeShopSpot(x, y) {
         return {
             x: Math.round(x),
             y: Math.round(y),
@@ -2922,7 +2983,11 @@
         };
     }
 
-    function isSafeShopSpot(shop, zoo, player) {
+    function isSafeShopSpot(shop, zoo, player, blockedRects) {
+        if (overlapsShopBlockedRects(shop, blockedRects)) {
+            return false;
+        }
+
         if (rectsOverlap(padRect(shop, SHOP_CLEARANCE), padRect(zoo, SHOP_CLEARANCE))) {
             return false;
         }
@@ -2932,6 +2997,20 @@
         }
 
         return true;
+    }
+
+    function overlapsShopBlockedRects(shop, blockedRects) {
+        if (!blockedRects) {
+            return false;
+        }
+
+        for (var index = 0; index < blockedRects.length; index += 1) {
+            if (rectsOverlap(shop, blockedRects[index])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     function createBadPerson(activePowers) {
