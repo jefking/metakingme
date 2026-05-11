@@ -322,6 +322,10 @@ h2 {
     text-align: left;
 }
 
+.shop-status {
+    cursor: default;
+}
+
 .shop-item span,
 .shop-item strong,
 .shop-item em {
