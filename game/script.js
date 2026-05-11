@@ -22,6 +22,7 @@
     var BAD_PERSON_ZOO_DISTANCE = 190;
     var COIN_DROP_INTERVAL = 10;
     var COINS_PER_DROP = 3;
+    var MAX_VISIBLE_COINS = 6;
     var WOLF_COUNT = 3;
     var WOLF_HIDE_MIN = 2;
     var WOLF_HIDE_MAX = 40;
@@ -916,7 +917,8 @@
 
         function dropBadPersonCoins() {
             var badPerson = game.badPerson;
-            for (var index = 0; index < COINS_PER_DROP; index += 1) {
+            var dropCount = Math.min(COINS_PER_DROP, MAX_VISIBLE_COINS - game.coinPickups.length);
+            for (var index = 0; index < dropCount; index += 1) {
                 var angle = (Math.PI * 2 * index) / COINS_PER_DROP + Math.random() * 0.55;
                 var spread = 20 + Math.random() * 18;
                 game.coinPickups.push({
