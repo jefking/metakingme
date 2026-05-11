@@ -30,9 +30,19 @@
     var WOLF_SAFE_DISTANCE = 180;
     var KNIFE_REACH = 24;
     var SPEAR_REACH = 86;
+    var BARRIER_PACK_SIZE = 3;
+    var BARRIER_COST = 10;
+    var BARRIER_RADIUS = 18;
+    var BARRIER_COOLDOWN_MIN = 10;
+    var BARRIER_COOLDOWN_MAX = 50;
+    var BARRIER_COVERAGE_LIMIT = 0.045;
+    var BARRIER_WALL_GAP = 34;
+    var BARRIER_NOTICE_SECONDS = 3.4;
     var SHOP_ITEMS = {
         knife: { id: "knife", name: "Knife", cost: 3 },
-        spear: { id: "spear", name: "Spear", cost: 1 }
+        spear: { id: "spear", name: "Spear", cost: 1 },
+        brick: { id: "brick", name: "Bricks", cost: BARRIER_COST, barrier: true },
+        stone: { id: "stone", name: "Stones", cost: BARRIER_COST, barrier: true }
     };
     var BAD_PERSON_SPRITES = {
         front: [
@@ -424,6 +434,17 @@
             '        <strong>1 coin</strong>',
             '        <em data-spear-status>0 owned</em>',
             '      </button>',
+            '      <button class="shop-item" type="button" data-shop-buy="brick" aria-pressed="false">',
+            '        <span>Bricks</span>',
+            '        <strong>10 coins</strong>',
+            '        <em data-brick-status>3 barriers</em>',
+            '      </button>',
+            '      <button class="shop-item" type="button" data-shop-buy="stone" aria-pressed="false">',
+            '        <span>Stones</span>',
+            '        <strong>10 coins</strong>',
+            '        <em data-stone-status>3 barriers</em>',
+            '      </button>',
+            '      <p class="shop-note" data-barrier-note hidden></p>',
             "    </aside>",
             "  </div>",
             '  <section class="help-panel" id="help-panel" data-help-panel aria-label="How to play" hidden>',
@@ -435,6 +456,8 @@
             '    <p>Enemies will try to steal animals and carry them to the drop-off corner.</p>',
             '    <p>Use your weapons to stop enemies before they escape.</p>',
             '    <p>Buy knives and spears from the shop to defend the zoo.</p>',
+            '    <p>Use bricks and stones to build barriers and protect the zoo animals from enemies.</p>',
+            '    <p>Be careful not to block the entire map, or your barriers will reset.</p>',
             '    <p>Only 3 wolves can appear at once, but more will keep spawning over time.</p>',
             '    <p>Collect and save all the animals to win the game.</p>',
             '    <p>If too many animals are stolen, you lose.</p>',
@@ -476,7 +499,7 @@
         resizeCanvas();
         renderShop();
         canvas.addEventListener("pointermove", setTarget);
-        canvas.addEventListener("pointerdown", setTarget);
+        canvas.addEventListener("pointerdown", onCanvasPointerDown);
         if (shop) {
             shop.addEventListener("click", onShopClick);
         }
@@ -504,7 +527,7 @@
             running = false;
             window.cancelAnimationFrame(animationFrame);
             canvas.removeEventListener("pointermove", setTarget);
-            canvas.removeEventListener("pointerdown", setTarget);
+            canvas.removeEventListener("pointerdown", onCanvasPointerDown);
             if (shop) {
                 shop.removeEventListener("click", onShopClick);
             }
@@ -528,6 +551,15 @@
 
         function setTarget(event) {
             var point = eventToWorld(event);
+            game.player.targetX = point.x;
+            game.player.targetY = point.y;
+        }
+
+        function onCanvasPointerDown(event) {
+            var point = eventToWorld(event);
+            if (placeSelectedBarrier(point)) {
+                return;
+            }
             game.player.targetX = point.x;
             game.player.targetY = point.y;
         }
@@ -584,7 +616,16 @@
 
         function buyShopItem(itemId) {
             var item = SHOP_ITEMS[itemId];
-            if (!item || game.coins < item.cost || game.ended) {
+            if (!item || game.ended) {
+                return;
+            }
+
+            if (item.barrier) {
+                buyBarrierPack(itemId, item);
+                return;
+            }
+
+            if (game.coins < item.cost) {
                 return;
             }
 
@@ -601,6 +642,28 @@
             renderShop();
         }
 
+        function buyBarrierPack(itemId, item) {
+            if (game.inventory[itemId] > 0) {
+                game.placementMode = itemId;
+                renderShop();
+                return;
+            }
+
+            if (game.coins < item.cost || game.barrierCooldown > 0 || getBarrierInventoryTotal() > 0) {
+                return;
+            }
+
+            game.coins -= item.cost;
+            game.inventory[itemId] = BARRIER_PACK_SIZE;
+            game.placementMode = itemId;
+            game.barrierCooldown = randomBarrierCooldown();
+            renderShop();
+        }
+
+        function getBarrierInventoryTotal() {
+            return (game.inventory.brick || 0) + (game.inventory.stone || 0);
+        }
+
         function renderShop() {
             if (!shop || !game) {
                 return;
@@ -611,6 +674,11 @@
             var spearStatus = shop.querySelector("[data-spear-status]");
             var knifeButton = shop.querySelector('[data-shop-buy="knife"]');
             var spearButton = shop.querySelector('[data-shop-buy="spear"]');
+            var brickStatus = shop.querySelector("[data-brick-status]");
+            var stoneStatus = shop.querySelector("[data-stone-status]");
+            var brickButton = shop.querySelector('[data-shop-buy="brick"]');
+            var stoneButton = shop.querySelector('[data-shop-buy="stone"]');
+            var barrierNote = shop.querySelector("[data-barrier-note]");
 
             if (coinCount) {
                 coinCount.textContent = game.coins + (game.coins === 1 ? " coin" : " coins");
@@ -627,6 +695,49 @@
             if (spearButton) {
                 spearButton.disabled = game.ended || game.coins < SHOP_ITEMS.spear.cost;
             }
+            renderBarrierStatus("brick", brickStatus);
+            renderBarrierStatus("stone", stoneStatus);
+            updateBarrierButton("brick", brickButton);
+            updateBarrierButton("stone", stoneButton);
+            if (barrierNote) {
+                barrierNote.hidden = !(game.barrierNoticeTimer > 0 && game.barrierNotice);
+                barrierNote.textContent = game.barrierNotice || "";
+            }
+        }
+
+        function renderBarrierStatus(itemId, status) {
+            var stock = game.inventory[itemId] || 0;
+            if (!status) {
+                return;
+            }
+
+            if (stock > 0) {
+                status.textContent = (game.placementMode === itemId ? "Placing, " : "Ready, ") + stock + " left";
+                return;
+            }
+
+            if (game.barrierCooldown > 0) {
+                status.textContent = "Restock in " + Math.ceil(game.barrierCooldown) + "s";
+                return;
+            }
+
+            if (getBarrierInventoryTotal() > 0) {
+                status.textContent = "Finish current pack";
+                return;
+            }
+
+            status.textContent = BARRIER_PACK_SIZE + " barriers";
+        }
+
+        function updateBarrierButton(itemId, button) {
+            var stock = game.inventory[itemId] || 0;
+            var lockedByPack = getBarrierInventoryTotal() > 0 && stock <= 0;
+            if (!button) {
+                return;
+            }
+
+            button.disabled = game.ended || (stock <= 0 && (game.coins < SHOP_ITEMS[itemId].cost || game.barrierCooldown > 0 || lockedByPack));
+            button.setAttribute("aria-pressed", game.placementMode === itemId ? "true" : "false");
         }
 
         function loop(now) {
@@ -647,6 +758,7 @@
             }
 
             game.elapsedTime += delta;
+            updateBarrierTimers(delta);
             var speedFactor = settings.reducedMotion ? 0.55 : 1;
             movePlayer(delta * speedFactor);
             moveAnimals(delta * speedFactor);
@@ -673,6 +785,24 @@
             if (nextGrowth <= 0) {
                 addGrowingObstacle();
                 nextGrowth = 6 + Math.random() * 4;
+            }
+        }
+
+        function updateBarrierTimers(delta) {
+            var shouldRender = false;
+            if (game.barrierCooldown > 0) {
+                var previousCooldownLabel = Math.ceil(game.barrierCooldown);
+                game.barrierCooldown = Math.max(0, game.barrierCooldown - delta);
+                shouldRender = shouldRender || Math.ceil(game.barrierCooldown) !== previousCooldownLabel;
+            }
+
+            if (game.barrierNoticeTimer > 0) {
+                game.barrierNoticeTimer = Math.max(0, game.barrierNoticeTimer - delta);
+                shouldRender = shouldRender || game.barrierNoticeTimer === 0;
+            }
+
+            if (shouldRender) {
+                renderShop();
             }
         }
 
@@ -764,6 +894,7 @@
             badPerson.angle = Math.atan2(dy, dx);
             badPerson.x += (dx / targetDistance) * step;
             badPerson.y += (dy / targetDistance) * step;
+            resolveBarrierCollision(badPerson);
         }
 
         function updateCoinDrops(delta) {
@@ -1046,6 +1177,7 @@
             wolf.angle = Math.atan2(dy, dx);
             wolf.x += (dx / targetDistance) * step;
             wolf.y += (dy / targetDistance) * step;
+            resolveBarrierCollision(wolf);
         }
 
         function spawnWolf(wolf) {
@@ -1406,6 +1538,125 @@
             entity.y = clamp(entity.y, entity.r, WORLD_HEIGHT - entity.r);
         }
 
+        function resolveBarrierCollision(entity) {
+            game.placedBarriers.forEach(function (barrier) {
+                var radius = barrier.currentRadius + entity.r;
+                var ox = entity.x - barrier.x;
+                var oy = entity.y - barrier.y;
+                var overlapDistance = Math.hypot(ox, oy);
+                if (overlapDistance > 0 && overlapDistance < radius) {
+                    var push = radius - overlapDistance;
+                    entity.x += (ox / overlapDistance) * push;
+                    entity.y += (oy / overlapDistance) * push;
+                } else if (overlapDistance === 0) {
+                    entity.x += radius;
+                }
+            });
+        }
+
+        function placeSelectedBarrier(point) {
+            var itemId = game.placementMode;
+            if (game.ended || !itemId) {
+                return false;
+            }
+
+            if (!game.inventory[itemId]) {
+                game.placementMode = null;
+                renderShop();
+                return false;
+            }
+
+            var barrier = createPlacedBarrier(itemId, point.x, point.y);
+            if (!isSafeBarrierSpot(barrier, game)) {
+                setBarrierNotice("Need open space for barrier.");
+                return true;
+            }
+
+            game.obstacles.push(barrier);
+            game.placedBarriers.push(barrier);
+            game.inventory[itemId] -= 1;
+            if (game.inventory[itemId] <= 0) {
+                game.inventory[itemId] = 0;
+                game.placementMode = null;
+            }
+
+            if (barrierCoverageTooHigh()) {
+                resetPlacedBarriers("Barriers reset: too much map blocked.");
+            } else if (barrierSpansMap()) {
+                resetPlacedBarriers("Barriers reset: wall crossed map.");
+            } else {
+                renderShop();
+            }
+
+            return true;
+        }
+
+        function setBarrierNotice(message) {
+            game.barrierNotice = message;
+            game.barrierNoticeTimer = BARRIER_NOTICE_SECONDS;
+            renderShop();
+        }
+
+        function resetPlacedBarriers(message) {
+            game.obstacles = game.obstacles.filter(function (obstacle) {
+                return !obstacle.barrier;
+            });
+            game.placedBarriers = [];
+            game.placementMode = null;
+            setBarrierNotice(message);
+        }
+
+        function barrierCoverageTooHigh() {
+            var barrierArea = game.placedBarriers.reduce(function (sum, barrier) {
+                return sum + Math.PI * barrier.radius * barrier.radius;
+            }, 0);
+
+            return barrierArea / (WORLD_WIDTH * WORLD_HEIGHT) >= BARRIER_COVERAGE_LIMIT;
+        }
+
+        function barrierSpansMap() {
+            var barriers = game.placedBarriers;
+            var visited = [];
+
+            for (var start = 0; start < barriers.length; start += 1) {
+                if (visited[start]) {
+                    continue;
+                }
+
+                var stack = [start];
+                var touchesLeft = false;
+                var touchesRight = false;
+                var touchesTop = false;
+                var touchesBottom = false;
+                visited[start] = true;
+
+                while (stack.length) {
+                    var index = stack.pop();
+                    var barrier = barriers[index];
+                    touchesLeft = touchesLeft || barrier.x - barrier.radius <= BARRIER_WALL_GAP;
+                    touchesRight = touchesRight || barrier.x + barrier.radius >= WORLD_WIDTH - BARRIER_WALL_GAP;
+                    touchesTop = touchesTop || barrier.y - barrier.radius <= BARRIER_WALL_GAP;
+                    touchesBottom = touchesBottom || barrier.y + barrier.radius >= WORLD_HEIGHT - BARRIER_WALL_GAP;
+
+                    if ((touchesLeft && touchesRight) || (touchesTop && touchesBottom)) {
+                        return true;
+                    }
+
+                    for (var next = 0; next < barriers.length; next += 1) {
+                        if (visited[next]) {
+                            continue;
+                        }
+                        if (distance(barrier, barriers[next]) <= barrier.radius + barriers[next].radius + BARRIER_WALL_GAP) {
+                            visited[next] = true;
+                            stack.push(next);
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
         function updateCarriedAnimal() {
             var animal = game.player.carrying;
             if (!animal) {
@@ -1639,6 +1890,11 @@
         }
 
         function drawObstacle(obstacle, palette) {
+            if (obstacle.barrier) {
+                drawBarrier(obstacle, palette);
+                return;
+            }
+
             var radius = obstacle.currentRadius;
             var sprites = obstacle.type === "tree" ? TREE_SPRITES : BRUSH_SPRITES;
             var sprite = sprites[obstacle.variant % sprites.length] || sprites[0];
@@ -1646,6 +1902,55 @@
             var scale = Math.max(1, Math.round(finalScale * (radius / obstacle.radius)));
 
             drawPixelSprite(sprite, obstacle.x, obstacle.y, scale, palette);
+        }
+
+        function drawBarrier(obstacle, palette) {
+            if (obstacle.type === "brick") {
+                drawBrickBarrier(obstacle, palette);
+            } else {
+                drawStoneBarrier(obstacle, palette);
+            }
+        }
+
+        function drawBrickBarrier(obstacle, palette) {
+            var width = Math.round(obstacle.currentRadius * 2.28);
+            var height = Math.round(obstacle.currentRadius * 1.44);
+            var left = obstacle.x - width / 2;
+            var top = obstacle.y - height / 2;
+            var brickHeight = Math.max(6, Math.round(height / 3.4));
+            var brickWidth = Math.max(12, Math.round(width / 3));
+
+            drawPixelRect(left + 3, top + height - 2, width - 6, 5, palette.spriteShadow);
+            drawPixelRect(left, top + 3, width, height - 5, palette.brickMortar);
+
+            for (var row = 0; row < 3; row += 1) {
+                var y = top + 4 + row * (brickHeight + 1);
+                var offset = row % 2 === 0 ? 1 : -brickWidth / 2 + 2;
+                for (var x = left + offset; x < left + width - 2; x += brickWidth + 2) {
+                    var clippedX = Math.max(left + 2, x);
+                    var clippedW = Math.min(brickWidth, left + width - 2 - clippedX);
+                    if (clippedW > 3) {
+                        drawPixelRect(clippedX, y, clippedW, brickHeight, palette.brick);
+                        drawPixelRect(clippedX + 2, y + 2, Math.max(2, clippedW - 5), 2, palette.brickLight);
+                    }
+                }
+            }
+        }
+
+        function drawStoneBarrier(obstacle, palette) {
+            var radius = obstacle.currentRadius;
+            var left = obstacle.x - radius * 1.18;
+            var top = obstacle.y - radius * 0.82;
+
+            drawPixelRect(left + 5, top + radius * 1.35, radius * 1.7, 5, palette.spriteShadow);
+            drawPixelRect(left + 3, top + 11, radius * 0.9, radius * 0.72, palette.stoneDark);
+            drawPixelRect(left + 8, top + 6, radius * 0.82, radius * 0.78, palette.stone);
+            drawPixelRect(left + 14, top + 9, radius * 0.34, 4, palette.stoneLight);
+            drawPixelRect(left + radius * 0.86, top + 4, radius * 0.98, radius * 0.9, palette.stoneDark);
+            drawPixelRect(left + radius, top, radius * 0.88, radius * 0.82, palette.stone);
+            drawPixelRect(left + radius * 1.16, top + 4, radius * 0.36, 4, palette.stoneLight);
+            drawPixelRect(left + radius * 1.42, top + 12, radius * 0.72, radius * 0.66, palette.stone);
+            drawPixelRect(left + radius * 1.55, top + 15, radius * 0.3, 4, palette.stoneLight);
         }
 
         function drawCoins() {
@@ -2012,7 +2317,13 @@
                     workerShirt: "#00e5ff",
                     workerShirtLight: "#ffffff",
                     workerPants: "#ffe600",
-                    workerBoot: "#ffffff"
+                    workerBoot: "#ffffff",
+                    brick: "#ff5fb7",
+                    brickLight: "#ffffff",
+                    brickMortar: "#000000",
+                    stone: "#ffffff",
+                    stoneLight: "#ffe600",
+                    stoneDark: "#00e5ff"
                 };
             }
 
@@ -2045,7 +2356,13 @@
                 workerShirt: "#204b8f",
                 workerShirtLight: "#2d65b3",
                 workerPants: "#1f365f",
-                workerBoot: "#1d1f1f"
+                workerBoot: "#1d1f1f",
+                brick: "#9e3f2f",
+                brickLight: "#d46b4d",
+                brickMortar: "#f1c9a0",
+                stone: "#8d9392",
+                stoneLight: "#c4c9c7",
+                stoneDark: "#676f70"
             };
         }
 
@@ -2286,6 +2603,9 @@
                     coins: game.coins,
                     coinPickups: game.coinPickups.length,
                     inventory: Object.assign({}, game.inventory),
+                    placedBarriers: game.placedBarriers.length,
+                    placementMode: game.placementMode,
+                    barrierCooldown: Number(game.barrierCooldown.toFixed(1)),
                     wolves: game.wolves.map(function (wolf) {
                         return {
                             hidden: wolf.hiddenTime > 0,
@@ -2314,13 +2634,20 @@
             wolves: createWolves(activePowers),
             animals: [],
             obstacles: [],
+            placedBarriers: [],
             coinPickups: [],
             coins: 0,
             coinDropTimer: COIN_DROP_INTERVAL,
             inventory: {
                 knife: false,
-                spear: 0
+                spear: 0,
+                brick: 0,
+                stone: 0
             },
+            placementMode: null,
+            barrierCooldown: 0,
+            barrierNotice: "",
+            barrierNoticeTimer: 0,
             rescued: 0,
             rescueSequence: 0,
             score: 0,
@@ -2414,6 +2741,10 @@
         return WOLF_HIDE_MIN + Math.random() * (WOLF_HIDE_MAX - WOLF_HIDE_MIN);
     }
 
+    function randomBarrierCooldown() {
+        return BARRIER_COOLDOWN_MIN + Math.random() * (BARRIER_COOLDOWN_MAX - BARRIER_COOLDOWN_MIN);
+    }
+
     function loadAnimalSprites() {
         var sprites = {};
         Object.keys(ANIMAL_SPRITE_PATHS).forEach(function (kind) {
@@ -2488,6 +2819,63 @@
             rescued: false,
             rescueOrder: 0
         };
+    }
+
+    function createPlacedBarrier(type, x, y) {
+        return {
+            x: clamp(x, BARRIER_RADIUS + 4, WORLD_WIDTH - BARRIER_RADIUS - 4),
+            y: clamp(y, BARRIER_RADIUS + 4, WORLD_HEIGHT - BARRIER_RADIUS - 4),
+            radius: BARRIER_RADIUS,
+            currentRadius: BARRIER_RADIUS,
+            type: type,
+            barrier: true,
+            variant: Math.floor(Math.random() * 4)
+        };
+    }
+
+    function isSafeBarrierSpot(barrier, game) {
+        var zooBlock = {
+            x: game.zoo.x - barrier.radius,
+            y: game.zoo.y - barrier.radius,
+            w: game.zoo.w + barrier.radius * 2,
+            h: game.zoo.h + barrier.radius * 2
+        };
+
+        if (pointInRect(barrier.x, barrier.y, zooBlock)) {
+            return false;
+        }
+
+        if (distance(barrier, game.player) < barrier.radius + game.player.r + 8) {
+            return false;
+        }
+
+        for (var animalIndex = 0; animalIndex < game.animals.length; animalIndex += 1) {
+            var animal = game.animals[animalIndex];
+            if (!animal.carried && distance(barrier, animal) < barrier.radius + animal.r + 8) {
+                return false;
+            }
+        }
+
+        if (game.badPerson.hiddenTime <= 0 && distance(barrier, game.badPerson) < barrier.radius + game.badPerson.r + 10) {
+            return false;
+        }
+
+        for (var wolfIndex = 0; wolfIndex < game.wolves.length; wolfIndex += 1) {
+            var wolf = game.wolves[wolfIndex];
+            if (wolf.hiddenTime <= 0 && distance(barrier, wolf) < barrier.radius + wolf.r + 10) {
+                return false;
+            }
+        }
+
+        for (var obstacleIndex = 0; obstacleIndex < game.obstacles.length; obstacleIndex += 1) {
+            var obstacle = game.obstacles[obstacleIndex];
+            var spacing = obstacle.barrier ? 3 : 8;
+            if (distance(barrier, obstacle) < barrier.radius + obstacle.radius + spacing) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     function placeObstacle(growing, targetGame) {
