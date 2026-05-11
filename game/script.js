@@ -22,6 +22,7 @@
     var BAD_PERSON_ZOO_DISTANCE = 190;
     var COIN_DROP_INTERVAL = 10;
     var COINS_PER_DROP = 3;
+    var MAX_VISIBLE_COINS = 6;
     var WOLF_COUNT = 3;
     var WOLF_HIDE_MIN = 2;
     var WOLF_HIDE_MAX = 40;
@@ -35,6 +36,8 @@
     var BARRIER_RADIUS = 18;
     var BARRIER_COOLDOWN_MIN = 10;
     var BARRIER_COOLDOWN_MAX = 50;
+    var BARRIER_LIFETIME_MIN = 10;
+    var BARRIER_LIFETIME_MAX = 30;
     var BARRIER_COVERAGE_LIMIT = 0.045;
     var BARRIER_WALL_GAP = 34;
     var BARRIER_NOTICE_SECONDS = 3.4;
@@ -483,7 +486,7 @@
             '    <p>Enemies will try to steal animals and carry them to the drop-off corner.</p>',
             '    <p>Use your weapons to stop enemies before they escape.</p>',
             '    <p>Walk to the shop stalls to buy knives and spears.</p>',
-            '    <p>Use bricks and stones to build barriers and protect the zoo animals from enemies.</p>',
+            '    <p>Use bricks and stones to build temporary barriers that disappear after 10 to 30 seconds.</p>',
             '    <p>Be careful not to block the entire map, or your barriers will reset.</p>',
             '    <p>Only 3 wolves can appear at once, but more will keep spawning over time.</p>',
             '    <p>Collect and save all the animals to win the game.</p>',
@@ -933,9 +936,37 @@
                 shouldRender = shouldRender || game.barrierNoticeTimer === 0;
             }
 
+            updatePlacedBarrierLifetimes(delta);
+
             if (shouldRender) {
                 renderShop();
             }
+        }
+
+        function updatePlacedBarrierLifetimes(delta) {
+            if (!game.placedBarriers.length) {
+                return;
+            }
+
+            var expired = [];
+
+            game.placedBarriers.forEach(function (barrier) {
+                barrier.lifetime -= delta;
+                if (barrier.lifetime <= 0) {
+                    expired.push(barrier);
+                }
+            });
+
+            if (!expired.length) {
+                return;
+            }
+
+            game.placedBarriers = game.placedBarriers.filter(function (barrier) {
+                return expired.indexOf(barrier) === -1;
+            });
+            game.obstacles = game.obstacles.filter(function (obstacle) {
+                return !obstacle.barrier || expired.indexOf(obstacle) === -1;
+            });
         }
 
         function movePlayer(delta) {
@@ -1048,7 +1079,8 @@
 
         function dropBadPersonCoins() {
             var badPerson = game.badPerson;
-            for (var index = 0; index < COINS_PER_DROP; index += 1) {
+            var dropCount = Math.min(COINS_PER_DROP, MAX_VISIBLE_COINS - game.coinPickups.length);
+            for (var index = 0; index < dropCount; index += 1) {
                 var angle = (Math.PI * 2 * index) / COINS_PER_DROP + Math.random() * 0.55;
                 var spread = 20 + Math.random() * 18;
                 game.coinPickups.push({
@@ -1445,6 +1477,8 @@
 
                 var hitDistance = distance(game.player, wolf);
                 if (game.inventory.knife && hitDistance <= game.player.r + wolf.r + KNIFE_REACH) {
+                    game.inventory.knife = false;
+                    renderShop();
                     defeatWolf(wolf);
                     return;
                 }
@@ -3048,6 +3082,10 @@
         return BARRIER_COOLDOWN_MIN + Math.random() * (BARRIER_COOLDOWN_MAX - BARRIER_COOLDOWN_MIN);
     }
 
+    function randomBarrierLifetime() {
+        return BARRIER_LIFETIME_MIN + Math.random() * (BARRIER_LIFETIME_MAX - BARRIER_LIFETIME_MIN);
+    }
+
     function loadAnimalSprites() {
         var sprites = {};
         Object.keys(ANIMAL_SPRITE_PATHS).forEach(function (kind) {
@@ -3136,6 +3174,7 @@
             currentRadius: BARRIER_RADIUS,
             type: type,
             barrier: true,
+            lifetime: randomBarrierLifetime(),
             variant: Math.floor(Math.random() * 4)
         };
     }
