@@ -1313,6 +1313,8 @@
 
                 var hitDistance = distance(game.player, wolf);
                 if (game.inventory.knife && hitDistance <= game.player.r + wolf.r + KNIFE_REACH) {
+                    game.inventory.knife = false;
+                    renderShop();
                     defeatWolf(wolf);
                     return;
                 }
